@@ -21,18 +21,60 @@ enum hex_editor_key {
   ARROW_RIGHT,
   ARROW_UP,
   ARROW_DOWN,
-  
+  INS_KEY,
   DEL_KEY,
   HOME_KEY,
   END_KEY,
   PAGE_UP,
   PAGE_DOWN,
 
+  SHIFT_ARROW_LEFT,
+  SHIFT_ARROW_RIGHT,
+  SHIFT_ARROW_UP,
+  SHIFT_ARROW_DOWN,
+  SHIFT_INS_KEY,
+  SHIFT_DEL_KEY,
+  SHIFT_HOME_KEY,
+  SHIFT_END_KEY,
+  SHIFT_PAGE_UP,
+  SHIFT_PAGE_DOWN,
+
+  CTRL_ARROW_LEFT,
+  CTRL_ARROW_RIGHT,
+  CTRL_ARROW_UP,
+  CTRL_ARROW_DOWN,
+  CTRL_INS_KEY,
   CTRL_DEL_KEY,
   CTRL_HOME_KEY,
   CTRL_END_KEY,
   CTRL_PAGE_UP,
   CTRL_PAGE_DOWN,
+
+  F1_KEY,
+  F2_KEY,
+  F3_KEY,
+  F4_KEY,
+  F5_KEY,
+  F6_KEY,
+  F7_KEY,
+  F8_KEY,
+  F9_KEY,
+  F10_KEY,
+  F11_KEY,
+  F12_KEY,
+
+  SHIFT_F1_KEY,
+  SHIFT_F2_KEY,
+  SHIFT_F3_KEY,
+  SHIFT_F4_KEY,
+  SHIFT_F5_KEY,
+  SHIFT_F6_KEY,
+  SHIFT_F7_KEY,
+  SHIFT_F8_KEY,
+  SHIFT_F9_KEY,
+  SHIFT_F10_KEY,
+  SHIFT_F11_KEY,
+  SHIFT_F12_KEY,
 };
 
 static int err_msg(struct hed_editor *editor, const char *fmt, ...) HED_PRINTF_FORMAT(2, 3);
@@ -59,6 +101,7 @@ static int save_file(struct hed_editor *editor)
     return err_msg(editor, "error writing file");
   }
   fclose(f);
+  editor->modified = false;
   return 0;
 }
 
@@ -142,9 +185,86 @@ static void destroy_editor(struct hed_editor *editor)
     free(editor->data);
 }
 
-#define CHAR_SAFE(c)  (((c)>=32 && (c)<127) ? (c) : '?')
+#define IS_LETTER(x)  ((x) >= 'A' && (x) <= 'Z')
+#define IS_DIGIT(x)   ((x) >= '0' && (x) <= '9')
 
-static int read_key(void)
+static int read_key_seq(struct hed_editor *editor, const char *seq, size_t len)
+{
+  if (len == 2 && seq[0] == '[' && IS_LETTER(seq[1])) {
+    switch (seq[1]) {
+    case 'A': return ARROW_UP;
+    case 'B': return ARROW_DOWN;
+    case 'C': return ARROW_RIGHT;
+    case 'D': return ARROW_LEFT;
+    case 'H': return HOME_KEY;
+    case 'F': return END_KEY;
+    }
+  }
+
+  if (len == 3 && seq[0] == '[' && IS_DIGIT(seq[1]) && seq[2] == '~') {
+    switch (seq[1]) {
+    case '1': return HOME_KEY;
+    case '2': return INS_KEY;
+    case '3': return DEL_KEY;
+    case '4': return END_KEY;
+    case '5': return PAGE_UP;
+    case '6': return PAGE_DOWN;
+    case '7': return HOME_KEY;
+    case '8': return END_KEY;
+    }
+  }
+
+  if (len == 5 && seq[0] == '[' && IS_DIGIT(seq[1]) && seq[2] == ';' && IS_DIGIT(seq[3])) {
+    if (seq[1] == '1' && seq[3] == '5' && seq[4] == 'H') return CTRL_HOME_KEY;
+    if (seq[1] == '1' && seq[3] == '5' && seq[4] == 'F') return CTRL_END_KEY;
+  }
+  
+  if (len == 2 && seq[0] == 'O') {
+    switch (seq[1]) {
+    case 'F': return END_KEY;
+    case 'H': return HOME_KEY;
+    case 'P': return F1_KEY;
+    case 'Q': return F2_KEY;
+    case 'R': return F3_KEY;
+    case 'S': return F4_KEY;
+    }
+  }
+
+  if (len == 3 && seq[0] == '[' && seq[1] == '[' && IS_LETTER(seq[2])) {
+    switch (seq[2]) {
+    case 'A': return F1_KEY;
+    case 'B': return F2_KEY;
+    case 'C': return F3_KEY;
+    case 'D': return F4_KEY;
+    case 'E': return F5_KEY;
+    }
+  }
+
+  if (len == 4 && seq[0] == '[' && IS_DIGIT(seq[1]) && IS_DIGIT(seq[2]) && seq[3] == '~') {
+    if (seq[1] == '1' && seq[2] == '5') return F5_KEY;
+    if (seq[1] == '1' && seq[2] == '7') return F6_KEY;
+    if (seq[1] == '1' && seq[2] == '8') return F7_KEY;
+    if (seq[1] == '1' && seq[2] == '9') return F8_KEY;
+    if (seq[1] == '2' && seq[2] == '0') return F9_KEY;
+    if (seq[1] == '2' && seq[2] == '1') return F10_KEY;
+    if (seq[1] == '2' && seq[2] == '3') return F11_KEY;
+    if (seq[1] == '2' && seq[2] == '4') return F12_KEY;
+    
+    if (seq[1] == '2' && seq[2] == '5') return SHIFT_F1_KEY;
+    if (seq[1] == '2' && seq[2] == '6') return SHIFT_F2_KEY;
+    if (seq[1] == '2' && seq[2] == '8') return SHIFT_F3_KEY;
+    if (seq[1] == '2' && seq[2] == '9') return SHIFT_F4_KEY;
+    if (seq[1] == '3' && seq[2] == '1') return SHIFT_F5_KEY;
+    if (seq[1] == '3' && seq[2] == '2') return SHIFT_F6_KEY;
+    if (seq[1] == '3' && seq[2] == '3') return SHIFT_F7_KEY;
+    if (seq[1] == '3' && seq[2] == '4') return SHIFT_F8_KEY;
+  }
+  
+  err_msg(editor, "-> unrecognized key: %.*s", (int)len, seq);
+  return 0;
+}
+
+static int read_key(struct hed_editor *editor)
 {
   int nread;
   char c;
@@ -154,65 +274,37 @@ static int read_key(void)
     if (nread == -1 && errno == EINTR)
       return 0;
   }
+
+#define NEXT()        do { if (read(STDIN_FILENO, &seq[len++], 1) != 1) goto err; } while (0)
+#define CUR           seq[len-1]
+  
   if (c == '\x1b') {
-    char seq[5];
-    if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
-    if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
-    //fprintf(stderr, "read seq: [0]=%d='%c', [1]=%d='%c'\n", seq[0], CHAR_SAFE(seq[0]), seq[1], CHAR_SAFE(seq[1]));
-    if (seq[0] == '[') {
-      if (seq[1] >= '0' && seq[1] <= '9') {
-        if (read(STDIN_FILENO, &seq[2], 1) != 1) return '\x1b';
-        //fprintf(stderr, "read seq: [2]=%d='%c'\n", seq[2], CHAR_SAFE(seq[2]));
-        if (seq[2] == '~') {
-          switch (seq[1]) {
-            case '1': return HOME_KEY;
-            case '3': return DEL_KEY;
-            case '4': return END_KEY;
-            case '5': return PAGE_UP;
-            case '6': return PAGE_DOWN;
-            case '7': return HOME_KEY;
-            case '8': return END_KEY;
-          }
-        } else if (seq[2] == ';') {
-          if (read(STDIN_FILENO, &seq[3], 1) != 1) return '\x1b';
-          if (read(STDIN_FILENO, &seq[4], 1) != 1) return '\x1b';
-          //fprintf(stderr, "read seq: [3]=%d='%c' [4]=%d='%c'\n", seq[3], CHAR_SAFE(seq[3]), seq[4], CHAR_SAFE(seq[4]));
-          switch (seq[4]) {
-            case 'H': return CTRL_HOME_KEY;
-            case '~': return CTRL_DEL_KEY;
-            case '4': return CTRL_END_KEY;
-            case '5': return CTRL_PAGE_UP;
-            case '6': return CTRL_PAGE_DOWN;
-            case '7': return CTRL_HOME_KEY;
-            case 'F': return CTRL_END_KEY;
-          }
-        }
-      } else {
-        switch (seq[1]) {
-          case 'A': return ARROW_UP;
-          case 'B': return ARROW_DOWN;
-          case 'C': return ARROW_RIGHT;
-          case 'D': return ARROW_LEFT;
-          case 'H': return HOME_KEY;
-          case 'F': return END_KEY;
-        }
+    char seq[64];
+    size_t len = 0;
+    if (read(STDIN_FILENO, &seq[len++], 1) != 1)
+      return c;
+    
+    while (len < sizeof(seq)-2) {
+      NEXT();
+      if (CUR == '~' || IS_LETTER(CUR))
+        return read_key_seq(editor, seq, len);
+      if (CUR == ';') {
+        NEXT();
+        continue;
       }
-    } else if (seq[0] == 'O') {
-      switch (seq[1]) {
-        case 'H': return HOME_KEY;
-        case 'F': return END_KEY;
-      }
-    } else if (seq[0] == '5') {
-      switch (seq[1]) {
-        case 'H': return CTRL_HOME_KEY;
-        case 'F': return CTRL_END_KEY;
-      }
+      //if (! IS_DIGIT(CUR)) goto err;
     }
-    return '\x1b';
+    goto err;
   } else {
+    //if (c >= 32) return -1;
     return c;
   }
+  
+ err:
+  return -1;
 }
+
+#define DUMP_CHAR(c)  (((c)>=32 && (c)<127) ? (c) : '?')
 
 static void redraw_screen(struct hed_editor *editor)
 {
@@ -356,7 +448,7 @@ static void cursor_down(struct hed_editor *editor)
 
 static void process_input(struct hed_editor *editor)
 {
-  int k = read_key();
+  int k = read_key(editor);
 
   struct hed_screen *scr = &editor->screen;
   switch (k) {
@@ -380,6 +472,7 @@ static void process_input(struct hed_editor *editor)
 
   case CTRL_KEY('o'):
     save_file(editor);
+    scr->redraw_needed = true;
     break;
     
   case HOME_KEY:
@@ -392,6 +485,22 @@ static void process_input(struct hed_editor *editor)
     if (scr->cursor_pos >= editor->data_len)
       scr->cursor_pos = editor->data_len - 1;
     scr->redraw_needed = true;
+    break;
+
+  case CTRL_HOME_KEY:
+    scr->cursor_pos = 0;
+    scr->top_line = 0;
+    scr->redraw_needed = true;
+    break;
+
+  case CTRL_END_KEY:
+    {
+      size_t n_page_lines = scr->h - 4;
+      size_t bottom_line = editor->data_len / 16 + (editor->data_len % 16 != 0);
+      scr->cursor_pos = editor->data_len - 1;
+      scr->top_line = bottom_line - n_page_lines;
+      scr->redraw_needed = true;
+    }
     break;
 
   case PAGE_UP:
@@ -441,10 +550,59 @@ static void process_input(struct hed_editor *editor)
     cursor_right(editor);
     break;
 
-  case CTRL_HOME_KEY: err_msg(editor, "ctrl+home"); break;
-  case CTRL_END_KEY:  err_msg(editor, "ctrl+end");  break;
-  case CTRL_DEL_KEY:  err_msg(editor, "ctrl+del");  break;
+#if 0
+  case CTRL_HOME_KEY:    err_msg(editor, "ctrl+home"); break;
+  case CTRL_END_KEY:     err_msg(editor, "ctrl+end");  break;
+  case CTRL_DEL_KEY:     err_msg(editor, "ctrl+del");  break;
+  case CTRL_INS_KEY:     err_msg(editor, "ctrl+ins");  break;
+  case CTRL_PAGE_UP:     err_msg(editor, "ctrl+pgup"); break;
+  case CTRL_PAGE_DOWN:   err_msg(editor, "ctrl+pgdn"); break;
+  case CTRL_ARROW_UP:    err_msg(editor, "ctrl+up"); break;
+  case CTRL_ARROW_DOWN:  err_msg(editor, "ctrl+down"); break;
+  case CTRL_ARROW_LEFT:  err_msg(editor, "ctrl+left"); break;
+  case CTRL_ARROW_RIGHT: err_msg(editor, "ctrl+right"); break;
+
+  case SHIFT_HOME_KEY:    err_msg(editor, "shift+home"); break;
+  case SHIFT_END_KEY:     err_msg(editor, "shift+end");  break;
+  case SHIFT_DEL_KEY:     err_msg(editor, "shift+del");  break;
+  case SHIFT_INS_KEY:     err_msg(editor, "shift+ins");  break;
+  case SHIFT_PAGE_UP:     err_msg(editor, "shift+pgup"); break;
+  case SHIFT_PAGE_DOWN:   err_msg(editor, "shift+pgdn"); break;
+  case SHIFT_ARROW_UP:    err_msg(editor, "shift+up"); break;
+  case SHIFT_ARROW_DOWN:  err_msg(editor, "shift+down"); break;
+  case SHIFT_ARROW_LEFT:  err_msg(editor, "shift+left"); break;
+  case SHIFT_ARROW_RIGHT: err_msg(editor, "shift+right"); break;
     
+  case DEL_KEY:  err_msg(editor, "del");  break;
+  case INS_KEY:  err_msg(editor, "ins");  break;
+
+  case F1_KEY:  err_msg(editor, "F1");  break;
+  case F2_KEY:  err_msg(editor, "F2");  break;
+  case F3_KEY:  err_msg(editor, "F3");  break;
+  case F4_KEY:  err_msg(editor, "F4");  break;
+  case F5_KEY:  err_msg(editor, "F5");  break;
+  case F6_KEY:  err_msg(editor, "F6");  break;
+  case F7_KEY:  err_msg(editor, "F7");  break;
+  case F8_KEY:  err_msg(editor, "F8");  break;
+  case F9_KEY:  err_msg(editor, "F9");  break;
+  case F10_KEY: err_msg(editor, "F10"); break;
+  case F11_KEY: err_msg(editor, "F11"); break;
+  case F12_KEY: err_msg(editor, "F12"); break;
+
+  case SHIFT_F1_KEY:  err_msg(editor, "shift+F1");  break;
+  case SHIFT_F2_KEY:  err_msg(editor, "shift+F2");  break;
+  case SHIFT_F3_KEY:  err_msg(editor, "shift+F3");  break;
+  case SHIFT_F4_KEY:  err_msg(editor, "shift+F4");  break;
+  case SHIFT_F5_KEY:  err_msg(editor, "shift+F5");  break;
+  case SHIFT_F6_KEY:  err_msg(editor, "shift+F6");  break;
+  case SHIFT_F7_KEY:  err_msg(editor, "shift+F7");  break;
+  case SHIFT_F8_KEY:  err_msg(editor, "shift+F8");  break;
+  case SHIFT_F9_KEY:  err_msg(editor, "shift+F9");  break;
+  case SHIFT_F10_KEY: err_msg(editor, "shift+F10"); break;
+  case SHIFT_F11_KEY: err_msg(editor, "shift+F11"); break;
+  case SHIFT_F12_KEY: err_msg(editor, "shift+F12"); break;
+#endif
+
   case 0x7f:
     cursor_left(editor);
     break;
@@ -481,15 +639,13 @@ static void process_input(struct hed_editor *editor)
     }
   }
 
-  if (reset_editing_byte && scr->editing_byte)
+  if (reset_editing_byte && scr->editing_byte) {
     scr->editing_byte = false;
+    scr->redraw_needed = true;
+  }
 
 #if 0
-  if (k >= 32 && k < 127)
-    fprintf(stderr, "key: '%c'\n", k);
-  else
-    fprintf(stderr, "key: %d\n", k);
-  //err_msg(editor, "key: %d", k);
+  err_msg(editor, "key: %d", k);
 #endif
 }
 
