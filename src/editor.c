@@ -28,7 +28,7 @@ void hed_init_editor(struct hed_editor *editor)
   editor->cur_msg[0] = '\0';
   editor->msg_was_set = false;
   editor->modified = false;
-  editor->reading_string = false;
+  editor->edit_mode = HED_MODE_DEFAULT;
 }
 
 int hed_show_msg(struct hed_editor *editor, const char *fmt, ...)
@@ -101,7 +101,7 @@ int hed_set_data(struct hed_editor *editor, uint8_t *data, size_t data_len)
   editor->data = data;
   editor->data_len = data_len;
   editor->filename = NULL;
-  editor->modified = false;
+  editor->modified = (data != NULL);
   return 0;
 }
 
@@ -204,10 +204,19 @@ static void show_footer(struct hed_editor *editor)
   }
   clear_eol();
 
-  if (editor->reading_string) {
+  switch (editor->edit_mode) {
+  case HED_MODE_READ_STRING:
     show_key_help(1 + 0*17, scr->h, "^C", "Cancel");
     show_key_help(1 + 1*17, scr->h, "RET", "Accept");
-  } else {
+    break;
+
+  case HED_MODE_READ_YESNO:
+    show_key_help(1 + 0*17, scr->h, "^C", "Cancel");
+    show_key_help(1 + 1*17, scr->h, " Y", "Yes");
+    show_key_help(1 + 2*17, scr->h, " N", "No");
+    break;
+
+  case HED_MODE_DEFAULT:
     show_key_help(1 + 0*17, scr->h, "^X", "Exit Editor");
     show_key_help(1 + 1*17, scr->h, "TAB", "Edit Mode");
     show_key_help(1 + 2*17, scr->h, "^O", "Write File");
@@ -409,18 +418,60 @@ static void cursor_end_of_file(struct hed_editor *editor)
   scr->redraw_needed = true;
 }
 
-static int read_string_prompt(struct hed_editor *editor, const char *prompt, char *str, size_t max_str_len)
+static int prompt_read_yesno(struct hed_editor *editor, const char *prompt, bool *response)
 {
   struct hed_screen *scr = &editor->screen;
 
-  UNUSED(max_str_len);
+  show_msg(editor, "%s", prompt);
+  size_t prompt_len = strlen(prompt);
+  char key_err[64];
+
+  editor->edit_mode = HED_MODE_READ_YESNO;
+  scr->redraw_needed = true;
+  while (! editor->quit) {
+    if (scr->redraw_needed)
+      redraw_screen(editor);
+    move_cursor(3 + prompt_len, scr->h - 1);
+    show_cursor(true);
+    hed_scr_flush();
+    
+    int k = read_key(scr->term_fd, key_err, sizeof(key_err));
+    switch (k) {
+    case KEY_REDRAW:
+      show_cursor(false);
+      reset_color();
+      clear_screen();
+      show_cursor(true);
+      scr->redraw_needed = true;
+      break;
+      
+    case CTRL_KEY('c'):
+    case 'y': case 'Y':
+    case 'n': case 'N':
+      if (k == 'y' || k == 'Y')
+        *response = true;
+      else if (k == 'n' || k == 'N')
+        *response = false;
+      editor->edit_mode = HED_MODE_DEFAULT;
+      show_cursor(false);
+      clear_msg(editor);
+      return (k == CTRL_KEY('c')) ? -1 : 0;
+    }
+  }
+  return -1;
+}
+
+static int prompt_read_string(struct hed_editor *editor, const char *prompt, char *str, size_t max_str_len)
+{
+  struct hed_screen *scr = &editor->screen;
+
   show_msg(editor, "%s: ", prompt);
   size_t prompt_len = strlen(prompt);
   size_t str_len = strlen(str);
   size_t cursor_pos = str_len;
   char key_err[64];
 
-  editor->reading_string = true;
+  editor->edit_mode = HED_MODE_READ_STRING;
   scr->redraw_needed = true;
   while (! editor->quit) {
     show_cursor(false);
@@ -448,7 +499,7 @@ static int read_string_prompt(struct hed_editor *editor, const char *prompt, cha
       
     case CTRL_KEY('c'):
     case '\r':
-      editor->reading_string = false;
+      editor->edit_mode = HED_MODE_DEFAULT;
       show_cursor(false);
       clear_msg(editor);
       return (k == '\r') ? 0 : -1;
@@ -475,7 +526,7 @@ static int read_string_prompt(struct hed_editor *editor, const char *prompt, cha
       break;
       
     default:
-      if (k >= 32 && k < 127) {
+      if (k >= 32 && k < 127 && (str_len + 2 <= max_str_len)) {
         memmove(str + cursor_pos + 1, str + cursor_pos, str_len - cursor_pos + 1);
         str[cursor_pos++] = k;
         str_len++;
@@ -483,9 +534,36 @@ static int read_string_prompt(struct hed_editor *editor, const char *prompt, cha
     }
   }
   
-  editor->reading_string = false;
+  editor->edit_mode = HED_MODE_DEFAULT;
   clear_msg(editor);
   return 0;
+}
+
+static int prompt_save_file(struct hed_editor *editor)
+{
+  char filename[256];
+  if (editor->filename)
+    snprintf(filename, sizeof(filename), "%s", editor->filename);
+  else
+    filename[0] = '\0';
+  if (prompt_read_string(editor, "Write file", filename, sizeof(filename)) < 0) {
+    editor->screen.redraw_needed = true;
+    return -1;
+  }
+  editor->screen.redraw_needed = true;
+  return write_file(editor, filename);
+}
+
+static int prompt_read_file(struct hed_editor *editor)
+{
+  char filename[256];
+  filename[0] = '\0';
+  if (prompt_read_string(editor, "Read file", filename, sizeof(filename)) < 0) {
+    editor->screen.redraw_needed = true;
+    return -1;
+  }
+  editor->screen.redraw_needed = true;
+  return hed_read_file(editor, filename);
 }
 
 static void process_input(struct hed_editor *editor)
@@ -507,11 +585,24 @@ static void process_input(struct hed_editor *editor)
     show_msg(editor, "Unknown key: <ESC>%s", key_err);
     break;
     
-    //case '\x1b': show_msg(editor, "Key: <ESC>"); break;
-    
-  case CTRL_KEY('q'):
   case CTRL_KEY('x'):
-    editor->quit = true;
+    if (editor->modified) {
+      bool save_changes = true;
+      if (prompt_read_yesno(editor, "Save changes?", &save_changes) < 0)
+        break;
+      if (save_changes) {
+        if (editor->filename) {
+          if (write_file(editor, editor->filename) < 0)
+            break;
+        } else {
+          if (prompt_save_file(editor) < 0)
+            break;
+        }
+      }
+      editor->quit = true;
+    } else {
+      editor->quit = true;
+    }
     break;
 
   case '\t':
@@ -528,28 +619,28 @@ static void process_input(struct hed_editor *editor)
     break;
 
   case CTRL_KEY('o'):
-    if (! editor->data) {
+    if (! editor->data)
       show_msg(editor, "No data to write!");
-    } else {
-      char filename[256];
-      if (editor->filename)
-        snprintf(filename, sizeof(filename), "%s", editor->filename);
-      else
-        filename[0] = '\0';
-      if (read_string_prompt(editor, "Write file", filename, sizeof(filename)) >= 0)
-        write_file(editor, filename);
-      scr->redraw_needed = true;
-    }
+    else
+      prompt_save_file(editor);
     break;
 
   case CTRL_KEY('r'):
-    {
-      char filename[256];
-      filename[0] = '\0';
-      if (read_string_prompt(editor, "Read file", filename, sizeof(filename)) >= 0)
-        hed_read_file(editor, filename);
-      scr->redraw_needed = true;
+    if (editor->modified) {
+      bool save_changes = true;
+      if (prompt_read_yesno(editor, "Save changes?", &save_changes) < 0)
+        break;
+      if (save_changes) {
+        if (editor->filename) {
+          if (write_file(editor, editor->filename) < 0)
+            break;
+        } else {
+          if (prompt_save_file(editor) < 0)
+            break;
+        }
+      }
     }
+    prompt_read_file(editor);
     break;
 
   case CTRL_KEY('a'):    cursor_home(editor); break;

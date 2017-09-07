@@ -6,15 +6,22 @@
 #include "hed.h"
 #include "screen.h"
 
+enum hed_edit_mode {
+  HED_MODE_DEFAULT,
+  HED_MODE_READ_STRING,
+  HED_MODE_READ_YESNO,
+};
+
 struct hed_editor {
   char *filename;
   uint8_t *data;
   size_t data_len;
   bool modified;
   bool quit;
-  bool reading_string;
+  
   bool msg_was_set;
   char cur_msg[256];
+  enum hed_edit_mode edit_mode;
   struct hed_screen screen;
 };
 
