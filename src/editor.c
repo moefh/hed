@@ -219,9 +219,9 @@ static void show_footer(struct hed_editor *editor)
 static void redraw_screen(struct hed_editor *editor)
 {
   struct hed_screen *scr = &editor->screen;
-  show_cursor(false);
 
   if (scr->window_changed) {
+    reset_color();
     clear_screen();
     scr->window_changed = false;
   }
@@ -287,8 +287,7 @@ static void redraw_screen(struct hed_editor *editor)
         out("%s\r\n", buf);
     }
     //move_cursor(1, 10); out("%d,%d", cur_x, cur_y);
-  } else
-    move_cursor(1, 1);
+  }
   
   hed_scr_flush();
   scr->redraw_needed = false;
@@ -361,7 +360,9 @@ static void cursor_page_down(struct hed_editor *editor)
   int cursor_delta = scr->cursor_pos - 16*scr->top_line;
   size_t n_page_lines = scr->h - BORDER_LINES;
   size_t bottom_line = editor->data_len / 16 + (editor->data_len % 16 != 0);
-  if (scr->top_line == bottom_line - n_page_lines) {
+  if (bottom_line < n_page_lines || scr->top_line == bottom_line - n_page_lines) {
+    if (bottom_line < n_page_lines)
+      scr->top_line = 0;
     cursor_delta = editor->data_len - 16*scr->top_line - 1;
   } else if (bottom_line > n_page_lines && scr->top_line + 2*n_page_lines < bottom_line)
     scr->top_line += n_page_lines;
@@ -401,7 +402,10 @@ static void cursor_end_of_file(struct hed_editor *editor)
   size_t n_page_lines = scr->h - BORDER_LINES;
   size_t bottom_line = editor->data_len / 16 + (editor->data_len % 16 != 0);
   scr->cursor_pos = editor->data_len - 1;
-  scr->top_line = bottom_line - n_page_lines;
+  if (bottom_line < n_page_lines)
+    scr->top_line = 0;
+  else
+    scr->top_line = bottom_line - n_page_lines;
   scr->redraw_needed = true;
 }
 
