@@ -18,7 +18,10 @@ struct hed_editor {
   struct hed_screen screen;
 };
 
-int hed_run_editor(struct hed_editor *editor, const char *filename);
+void hed_init_editor(struct hed_editor *editor);
+int hed_read_file(struct hed_editor *editor, const char *filename);
+int hed_set_data(struct hed_editor *editor, uint8_t *data, size_t data_len);
+int hed_run_editor(struct hed_editor *editor);
 int hed_show_msg(struct hed_editor *editor, const char *fmt, ...) HED_PRINTF_FORMAT(2, 3);
 
 #endif /* EDITOR_H_FILE */

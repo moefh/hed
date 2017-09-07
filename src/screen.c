@@ -25,11 +25,15 @@ static void handle_sigwinch(int signum)
   signal(signum, handle_sigwinch);
 }
 
-void hed_init_screen(struct hed_screen *scr)
+int hed_init_screen(struct hed_screen *scr)
 {
   signal(SIGWINCH, SIG_DFL);
   screen = scr;
 
+  screen->term_fd = (isatty(STDIN_FILENO)) ? STDIN_FILENO : STDOUT_FILENO;
+  if (term_setup_raw(screen->term_fd) < 0)
+    return -1;
+  
   term_get_window_size(&screen->w, &screen->h);
   screen->window_changed = true;
   screen->redraw_needed = true;
@@ -42,6 +46,7 @@ void hed_init_screen(struct hed_screen *scr)
   screen->buf_len = 0;
   
   signal(SIGWINCH, handle_sigwinch);
+  return 0;
 }
 
 void hed_close_screen(void)
@@ -53,7 +58,7 @@ void hed_close_screen(void)
 void hed_scr_flush(void)
 {
   if (screen->buf_len > 0) {
-    write(STDOUT_FILENO, screen->buf, screen->buf_len);
+    write(screen->term_fd, screen->buf, screen->buf_len);
     screen->buf_len = 0;
   }
 }

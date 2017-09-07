@@ -33,6 +33,7 @@ enum hed_edit_pane {
 };
 
 struct hed_screen {
+  int term_fd;
   int w;
   int h;
   size_t cursor_pos;
@@ -48,7 +49,7 @@ struct hed_screen {
   size_t buf_len;
 };
 
-void hed_init_screen(struct hed_screen *scr);
+int hed_init_screen(struct hed_screen *scr);
 void hed_close_screen(void);
 
 void hed_scr_flush(void);

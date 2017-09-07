@@ -20,7 +20,7 @@
 #define show_msg  hed_show_msg
 #define clear_msg hed_clear_msg
 
-static void init_editor(struct hed_editor *editor)
+void hed_init_editor(struct hed_editor *editor)
 {
   editor->filename = NULL;
   editor->data = NULL;
@@ -91,7 +91,21 @@ static int write_file(struct hed_editor *editor, const char *filename)
   return 0;
 }
 
-static int read_file(struct hed_editor *editor, const char *filename)
+int hed_set_data(struct hed_editor *editor, uint8_t *data, size_t data_len)
+{
+  if (editor->filename)
+    free(editor->filename);
+  if (editor->data)
+    free(editor->data);
+  
+  editor->data = data;
+  editor->data_len = data_len;
+  editor->filename = NULL;
+  editor->modified = false;
+  return 0;
+}
+
+int hed_read_file(struct hed_editor *editor, const char *filename)
 {
   FILE *f = fopen(filename, "r");
   if (! f)
@@ -194,7 +208,7 @@ static void show_footer(struct hed_editor *editor)
     show_key_help(1 + 0*17, scr->h, "^C", "Cancel");
     show_key_help(1 + 1*17, scr->h, "RET", "Accept");
   } else {
-    show_key_help(1 + 0*17, scr->h, "^X", "Exit");
+    show_key_help(1 + 0*17, scr->h, "^X", "Exit Editor");
     show_key_help(1 + 1*17, scr->h, "TAB", "Edit Mode");
     show_key_help(1 + 2*17, scr->h, "^O", "Write File");
     show_key_help(1 + 3*17, scr->h, "^R", "Read File");
@@ -418,7 +432,7 @@ static int read_string_prompt(struct hed_editor *editor, const char *prompt, cha
     show_cursor(true);
     hed_scr_flush();
     
-    int k = read_key(STDIN_FILENO, key_err, sizeof(key_err));
+    int k = read_key(scr->term_fd, key_err, sizeof(key_err));
     switch (k) {
     case KEY_REDRAW:
       show_cursor(false);
@@ -472,10 +486,11 @@ static int read_string_prompt(struct hed_editor *editor, const char *prompt, cha
 
 static void process_input(struct hed_editor *editor)
 {
-  char key_err[64];
-  int k = read_key(STDIN_FILENO, key_err, sizeof(key_err));
-
   struct hed_screen *scr = &editor->screen;
+  
+  char key_err[64];
+  int k = read_key(scr->term_fd, key_err, sizeof(key_err));
+
   editor->msg_was_set = false;
   switch (k) {
   case KEY_REDRAW:
@@ -511,8 +526,11 @@ static void process_input(struct hed_editor *editor)
   case CTRL_KEY('o'):
     {
       char filename[256];
-      strcpy(filename, editor->filename);
-      if (read_string_prompt(editor, "Read file", filename, sizeof(filename)) >= 0)
+      if (editor->filename)
+        snprintf(filename, sizeof(filename), "%s", editor->filename);
+      else
+        filename[0] = '\0';
+      if (read_string_prompt(editor, "Write file", filename, sizeof(filename)) >= 0)
         write_file(editor, filename);
       scr->redraw_needed = true;
     }
@@ -523,12 +541,15 @@ static void process_input(struct hed_editor *editor)
       char filename[256];
       filename[0] = '\0';
       if (read_string_prompt(editor, "Read file", filename, sizeof(filename)) >= 0)
-        read_file(editor, filename);
+        hed_read_file(editor, filename);
       scr->redraw_needed = true;
     }
     break;
 
-  case 0x7f:             cursor_left(editor); break;
+  case CTRL_KEY('a'):    cursor_home(editor); break;
+  case CTRL_KEY('e'):    cursor_end(editor); break;
+  case 8:                cursor_left(editor); break;
+  case 127:              cursor_left(editor); break;
   case KEY_HOME:         cursor_home(editor); break;
   case KEY_END:          cursor_end(editor);  break;
   case KEY_CTRL_HOME:    cursor_start_of_file(editor); break;
@@ -540,7 +561,7 @@ static void process_input(struct hed_editor *editor)
   case KEY_ARROW_LEFT:   cursor_left(editor); break;
   case KEY_ARROW_RIGHT:  cursor_right(editor); break;
 
-#if 1
+#if 0
   case KEY_CTRL_DEL:         show_msg(editor, "key: ctrl+del");  break;
   case KEY_CTRL_INS:         show_msg(editor, "key: ctrl+ins");  break;
   case KEY_CTRL_PAGE_UP:     show_msg(editor, "key: ctrl+pgup"); break;
@@ -638,20 +659,16 @@ static void process_input(struct hed_editor *editor)
 #endif
 }
 
-int hed_run_editor(struct hed_editor *editor, const char *filename)
+int hed_run_editor(struct hed_editor *editor)
 {
-  init_editor(editor);
-  if (term_setup_raw() < 0) {
+  if (hed_init_screen(&editor->screen) < 0) {
     fprintf(stderr, "ERROR setting up terminal\n");
     return -1;
   }
-  hed_init_screen(&editor->screen);
+
   show_cursor(false);
   clear_screen();
     
-  if (filename)
-    read_file(editor, filename);
-
   editor->quit = false;
   while (! editor->quit) {
     if (editor->screen.redraw_needed)
