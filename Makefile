@@ -26,3 +26,4 @@ build:
 
 check: debug
 	valgrind --track-origins=yes --leak-check=full --show-leak-kinds=all --log-file=x.hex src/hed $(TEST_FILE)
+
