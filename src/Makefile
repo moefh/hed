@@ -1,5 +1,5 @@
 
-OBJS = main.o term.o screen.o editor.o
+OBJS = main.o term.o input.o screen.o editor.o
 
 .PHONY: clean
 

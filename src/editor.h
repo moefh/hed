@@ -11,12 +11,14 @@ struct hed_editor {
   uint8_t *data;
   size_t data_len;
   bool modified;
-
   bool quit;
-  char err_msg[256];
+  bool reading_string;
+  bool msg_was_set;
+  char cur_msg[256];
   struct hed_screen screen;
 };
 
 int hed_run_editor(struct hed_editor *editor, const char *filename);
+int hed_show_msg(struct hed_editor *editor, const char *fmt, ...) HED_PRINTF_FORMAT(2, 3);
 
 #endif /* EDITOR_H_FILE */

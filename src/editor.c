@@ -5,111 +5,97 @@
 #include <string.h>
 #include <stdarg.h>
 #include <limits.h>
-#include <errno.h>
 #include <unistd.h>
 
 #include "editor.h"
 #include "screen.h"
 #include "term.h"
+#include "input.h"
 
 #define HED_BANNER  "hed v0.1"
+#define HEADER_LINES  2
+#define FOOTER_LINES  2
+#define BORDER_LINES  (HEADER_LINES+FOOTER_LINES)
 
-#define CTRL_KEY(k) ((k) & 0x1f)
-
-enum hex_editor_key {
-  ARROW_LEFT = 1000,
-  ARROW_RIGHT,
-  ARROW_UP,
-  ARROW_DOWN,
-  INS_KEY,
-  DEL_KEY,
-  HOME_KEY,
-  END_KEY,
-  PAGE_UP,
-  PAGE_DOWN,
-
-  SHIFT_ARROW_LEFT,
-  SHIFT_ARROW_RIGHT,
-  SHIFT_ARROW_UP,
-  SHIFT_ARROW_DOWN,
-  SHIFT_INS_KEY,
-  SHIFT_DEL_KEY,
-  SHIFT_HOME_KEY,
-  SHIFT_END_KEY,
-  SHIFT_PAGE_UP,
-  SHIFT_PAGE_DOWN,
-
-  CTRL_ARROW_LEFT,
-  CTRL_ARROW_RIGHT,
-  CTRL_ARROW_UP,
-  CTRL_ARROW_DOWN,
-  CTRL_INS_KEY,
-  CTRL_DEL_KEY,
-  CTRL_HOME_KEY,
-  CTRL_END_KEY,
-  CTRL_PAGE_UP,
-  CTRL_PAGE_DOWN,
-
-  F1_KEY,
-  F2_KEY,
-  F3_KEY,
-  F4_KEY,
-  F5_KEY,
-  F6_KEY,
-  F7_KEY,
-  F8_KEY,
-  F9_KEY,
-  F10_KEY,
-  F11_KEY,
-  F12_KEY,
-
-  SHIFT_F1_KEY,
-  SHIFT_F2_KEY,
-  SHIFT_F3_KEY,
-  SHIFT_F4_KEY,
-  SHIFT_F5_KEY,
-  SHIFT_F6_KEY,
-  SHIFT_F7_KEY,
-  SHIFT_F8_KEY,
-  SHIFT_F9_KEY,
-  SHIFT_F10_KEY,
-  SHIFT_F11_KEY,
-  SHIFT_F12_KEY,
-};
-
-static int err_msg(struct hed_editor *editor, const char *fmt, ...) HED_PRINTF_FORMAT(2, 3);
+#define show_msg  hed_show_msg
+#define clear_msg hed_clear_msg
 
 static void init_editor(struct hed_editor *editor)
 {
   editor->filename = NULL;
   editor->data = NULL;
   editor->data_len = 0;
-  editor->err_msg[0] = '\0';
+  editor->cur_msg[0] = '\0';
+  editor->msg_was_set = false;
   editor->modified = false;
+  editor->reading_string = false;
 }
 
-static int save_file(struct hed_editor *editor)
+int hed_show_msg(struct hed_editor *editor, const char *fmt, ...)
+{
+  va_list ap;
+  va_start(ap, fmt);
+  vsnprintf(editor->cur_msg, sizeof(editor->cur_msg), fmt, ap);
+  va_end(ap);
+  
+  editor->screen.redraw_needed = true;
+  editor->msg_was_set = true;
+  return -1;
+}
+
+int hed_clear_msg(struct hed_editor *editor)
+{
+  editor->cur_msg[0] = '\0';
+  editor->screen.redraw_needed = true;
+  editor->msg_was_set = true;
+  return -1;
+}
+
+static void destroy_editor(struct hed_editor *editor)
+{
+  if (editor->filename)
+    free(editor->filename);
+  if (editor->data)
+    free(editor->data);
+}
+
+static int write_file(struct hed_editor *editor, const char *filename)
 {
   if (! editor->data)
     return 0;
+
+  char *new_filename = NULL;
+  if (! editor->filename || strcmp(filename, editor->filename) != 0) {
+    new_filename = malloc(strlen(filename) + 1);
+    if (! new_filename)
+      return show_msg(editor, "ERROR: out of memory"); 
+    strcpy(new_filename, filename);
+  }
   
-  FILE *f = fopen(editor->filename, "w");
-  if (! f)
-    return err_msg(editor, "can't open '%s'", editor->filename);
+  FILE *f = fopen(filename, "w");
+  if (! f) {
+    free(new_filename);
+    return show_msg(editor, "ERROR: can't open file '%s'", filename);
+  }
   if (fwrite(editor->data, 1, editor->data_len, f) != editor->data_len) {
+    free(new_filename);
     fclose(f);
-    return err_msg(editor, "error writing file");
+    return show_msg(editor, "ERROR: can't write file '%s'", filename);
   }
   fclose(f);
+  show_msg(editor, "File saved: '%s'", filename);
   editor->modified = false;
+
+  if (new_filename)
+    editor->filename = new_filename;
   return 0;
 }
 
-static int open_file(struct hed_editor *editor, const char *filename)
+static int read_file(struct hed_editor *editor, const char *filename)
 {
   FILE *f = fopen(filename, "r");
   if (! f)
-    return err_msg(editor, "can't open '%s'", filename);
+    return show_msg(editor, "ERROR: can't open file '%s'", filename);
 
   char *new_filename = malloc(strlen(filename) + 1);
   if (! new_filename)
@@ -120,21 +106,21 @@ static int open_file(struct hed_editor *editor, const char *filename)
   if (fseek(f, 0, SEEK_END) != -1) {
     long size = ftell(f);
     if (size < 0 || size > INT_MAX) {
-      err_msg(editor, "file is too large");
+      show_msg(editor, "ERROR: file is too large");
       goto err;
     }
     if (fseek(f, 0, SEEK_SET) == -1) {
-      err_msg(editor, "can't seek to start of file");
+      show_msg(editor, "ERROR: can't seek to start of file");
       goto err;
     }
     uint8_t *data = malloc(size);
     if (! data) {
-      err_msg(editor, "not enough memory for %ld bytes", size);
+      show_msg(editor, "ERROR: not enough memory for %ld bytes", size);
       goto err;
     }
     
     if (fread(data, 1, size, f) != (size_t) size) {
-      err_msg(editor, "error reading file");
+      show_msg(editor, "ERROR: error reading file");
       free(data);
       goto err;
     }
@@ -146,11 +132,12 @@ static int open_file(struct hed_editor *editor, const char *filename)
     editor->data = data;
     editor->data_len = size;
     editor->filename = new_filename;
+    editor->modified = false;
     fclose(f);
     return 0;
   }
 
-  err_msg(editor, "reading from pipes not implemented");
+  show_msg(editor, "ERROR: reading from pipes not implemented");
 
  err:
   if (new_filename)
@@ -159,152 +146,61 @@ static int open_file(struct hed_editor *editor, const char *filename)
   return -1;
 }
 
-static int err_msg(struct hed_editor *editor, const char *fmt, ...)
-{
-  va_list ap;
-  va_start(ap, fmt);
-  vsnprintf(editor->err_msg, sizeof(editor->err_msg), fmt, ap);
-  va_end(ap);
-  editor->screen.redraw_needed = true;
-  return -1;
-}
-
-static void die(const char *msg)
-{
-  write(STDOUT_FILENO, "\x1b[2J", 4);
-  write(STDOUT_FILENO, "\x1b[H", 3);
-  perror(msg);
-  exit(1);
-}
-
-static void destroy_editor(struct hed_editor *editor)
-{
-  if (editor->filename)
-    free(editor->filename);
-  if (editor->data)
-    free(editor->data);
-}
-
-#define IS_LETTER(x)  ((x) >= 'A' && (x) <= 'Z')
-#define IS_DIGIT(x)   ((x) >= '0' && (x) <= '9')
-
-static int read_key_seq(struct hed_editor *editor, const char *seq, size_t len)
-{
-  if (len == 2 && seq[0] == '[' && IS_LETTER(seq[1])) {
-    switch (seq[1]) {
-    case 'A': return ARROW_UP;
-    case 'B': return ARROW_DOWN;
-    case 'C': return ARROW_RIGHT;
-    case 'D': return ARROW_LEFT;
-    case 'H': return HOME_KEY;
-    case 'F': return END_KEY;
-    }
-  }
-
-  if (len == 3 && seq[0] == '[' && IS_DIGIT(seq[1]) && seq[2] == '~') {
-    switch (seq[1]) {
-    case '1': return HOME_KEY;
-    case '2': return INS_KEY;
-    case '3': return DEL_KEY;
-    case '4': return END_KEY;
-    case '5': return PAGE_UP;
-    case '6': return PAGE_DOWN;
-    case '7': return HOME_KEY;
-    case '8': return END_KEY;
-    }
-  }
-
-  if (len == 5 && seq[0] == '[' && IS_DIGIT(seq[1]) && seq[2] == ';' && IS_DIGIT(seq[3])) {
-    if (seq[1] == '1' && seq[3] == '5' && seq[4] == 'H') return CTRL_HOME_KEY;
-    if (seq[1] == '1' && seq[3] == '5' && seq[4] == 'F') return CTRL_END_KEY;
-  }
-  
-  if (len == 2 && seq[0] == 'O') {
-    switch (seq[1]) {
-    case 'F': return END_KEY;
-    case 'H': return HOME_KEY;
-    case 'P': return F1_KEY;
-    case 'Q': return F2_KEY;
-    case 'R': return F3_KEY;
-    case 'S': return F4_KEY;
-    }
-  }
-
-  if (len == 3 && seq[0] == '[' && seq[1] == '[' && IS_LETTER(seq[2])) {
-    switch (seq[2]) {
-    case 'A': return F1_KEY;
-    case 'B': return F2_KEY;
-    case 'C': return F3_KEY;
-    case 'D': return F4_KEY;
-    case 'E': return F5_KEY;
-    }
-  }
-
-  if (len == 4 && seq[0] == '[' && IS_DIGIT(seq[1]) && IS_DIGIT(seq[2]) && seq[3] == '~') {
-    if (seq[1] == '1' && seq[2] == '5') return F5_KEY;
-    if (seq[1] == '1' && seq[2] == '7') return F6_KEY;
-    if (seq[1] == '1' && seq[2] == '8') return F7_KEY;
-    if (seq[1] == '1' && seq[2] == '9') return F8_KEY;
-    if (seq[1] == '2' && seq[2] == '0') return F9_KEY;
-    if (seq[1] == '2' && seq[2] == '1') return F10_KEY;
-    if (seq[1] == '2' && seq[2] == '3') return F11_KEY;
-    if (seq[1] == '2' && seq[2] == '4') return F12_KEY;
-    
-    if (seq[1] == '2' && seq[2] == '5') return SHIFT_F1_KEY;
-    if (seq[1] == '2' && seq[2] == '6') return SHIFT_F2_KEY;
-    if (seq[1] == '2' && seq[2] == '8') return SHIFT_F3_KEY;
-    if (seq[1] == '2' && seq[2] == '9') return SHIFT_F4_KEY;
-    if (seq[1] == '3' && seq[2] == '1') return SHIFT_F5_KEY;
-    if (seq[1] == '3' && seq[2] == '2') return SHIFT_F6_KEY;
-    if (seq[1] == '3' && seq[2] == '3') return SHIFT_F7_KEY;
-    if (seq[1] == '3' && seq[2] == '4') return SHIFT_F8_KEY;
-  }
-  
-  err_msg(editor, "-> unrecognized key: %.*s", (int)len, seq);
-  return 0;
-}
-
-static int read_key(struct hed_editor *editor)
-{
-  int nread;
-  char c;
-  while ((nread = read(STDIN_FILENO, &c, 1)) != 1) {
-    if (nread == -1 && errno != EAGAIN && errno != EINTR)
-      die("read");
-    if (nread == -1 && errno == EINTR)
-      return 0;
-  }
-
-#define NEXT()        do { if (read(STDIN_FILENO, &seq[len++], 1) != 1) goto err; } while (0)
-#define CUR           seq[len-1]
-  
-  if (c == '\x1b') {
-    char seq[64];
-    size_t len = 0;
-    if (read(STDIN_FILENO, &seq[len++], 1) != 1)
-      return c;
-    
-    while (len < sizeof(seq)-2) {
-      NEXT();
-      if (CUR == '~' || IS_LETTER(CUR))
-        return read_key_seq(editor, seq, len);
-      if (CUR == ';') {
-        NEXT();
-        continue;
-      }
-      //if (! IS_DIGIT(CUR)) goto err;
-    }
-    goto err;
-  } else {
-    //if (c >= 32) return -1;
-    return c;
-  }
-  
- err:
-  return -1;
-}
-
 #define DUMP_CHAR(c)  (((c)>=32 && (c)<127) ? (c) : '?')
+
+static void show_header(struct hed_editor *editor)
+{
+  struct hed_screen *scr = &editor->screen;
+
+  reset_color();
+  set_color(FG_BLACK, BG_GRAY);
+  move_cursor(1, 1);
+  out(" %s", (editor->filename) ? editor->filename : "NO FILE");
+  if (editor->modified)
+    out(" (modified)");
+  clear_eol();
+  move_cursor(scr->w - strlen(HED_BANNER) - 1, 1);
+  out("%s", HED_BANNER);
+  reset_color();
+}
+
+static void show_key_help(int x, int y, const char *key, const char *help)
+{
+  move_cursor(x, y);
+  set_color(FG_BLACK, BG_GRAY);
+  out("%s", key);
+  reset_color();
+  out(" %s", help);
+
+  size_t txt_len = strlen(key) + strlen(help) + 1;
+  for (size_t i = txt_len; i < 17; i++)
+    out(" ");
+}
+
+static void show_footer(struct hed_editor *editor)
+{
+  struct hed_screen *scr = &editor->screen;
+
+  reset_color();
+  move_cursor(1, scr->h - 1);
+  if (editor->cur_msg[0] != '\0') {
+    set_color(FG_BLACK, BG_GRAY);
+    out(" %s", editor->cur_msg);
+    clear_eol();
+  }
+  clear_eol();
+
+  if (editor->reading_string) {
+    show_key_help(1 + 0*17, scr->h, "^C", "Cancel");
+    show_key_help(1 + 1*17, scr->h, "RET", "Accept");
+  } else {
+    show_key_help(1 + 0*17, scr->h, "^X", "Exit");
+    show_key_help(1 + 1*17, scr->h, "TAB", "Edit Mode");
+    show_key_help(1 + 2*17, scr->h, "^O", "Write File");
+    show_key_help(1 + 3*17, scr->h, "^R", "Read File");
+  }
+  clear_eol();
+}
 
 static void redraw_screen(struct hed_editor *editor)
 {
@@ -315,33 +211,25 @@ static void redraw_screen(struct hed_editor *editor)
     clear_screen();
     scr->window_changed = false;
   }
-  
-  set_color(47);
-  set_color(30);
-  move_cursor(1, 1);
-  out(" %s", (editor->filename) ? editor->filename : "NO FILE");
-  if (editor->modified)
-    out(" (modified)");
-  clear_eol();
-  move_cursor(scr->w - strlen(HED_BANNER) - 1, 1);
-  out("%s", HED_BANNER);
-  reset_color();
+
+  show_header(editor);
+  show_footer(editor);
 
   //static int count = 0; move_cursor(scr->w-5, 1); out("%5d", count++ % 1000);
   
   if (editor->data) {
     move_cursor(1, 3);
 
-    for (int i = 0; i < scr->h - 4; i++) {
+    for (int i = 0; i < scr->h - BORDER_LINES; i++) {
       size_t pos = 16 * (scr->top_line + i);
       if (pos >= editor->data_len)
         break;
-      //set_bold(false);
+      set_bold(false);
       out("%08x ", (unsigned) pos);
-      line_draw("| ");
+      box_draw("| ");
       int len = (editor->data_len - pos < 16) ? editor->data_len - pos : 16;
       char buf[17];
-      //set_bold(true);
+      set_bold(scr->pane == PANE_HEX);
       for (int j = 0; j < len; j++) {
         uint8_t b = editor->data[pos+j];
 
@@ -349,15 +237,14 @@ static void redraw_screen(struct hed_editor *editor)
           int cur_x = scr->cursor_pos % 16;
           int cur_y = scr->cursor_pos / 16 - scr->top_line;
           move_cursor(11 + 3*cur_x, 3 + cur_y);
-          set_color(30);
-          set_color((scr->pane == PANE_TEXT) ? 107 : (scr->editing_byte) ? 101 : 103);
-          //set_bold(false);
+          set_color(FG_BLACK, (scr->pane == PANE_HEX && scr->editing_byte) ? BG_YELLOW : BG_GRAY);
+          set_bold(false);
           out(" ");
         }
         out("%02x ", b);
         if (scr->cursor_pos == pos + j) {
           reset_color();
-          //set_bold(true);
+          set_bold(scr->pane == PANE_HEX);
         }
         
         buf[j] = (b < 32 || b >= 0x7f) ? '.' : b;
@@ -367,31 +254,24 @@ static void redraw_screen(struct hed_editor *editor)
         buf[j] = ' ';
       }
       buf[16] = '\0';
-      //set_bold(false);
-      line_draw("| ");
-      //set_bold(true);
+      set_bold(false);
+      box_draw("| ");
 
+      set_bold(scr->pane == PANE_TEXT);
       if (scr->cursor_pos >= pos && scr->cursor_pos <= pos + 16) {
         int n_before = scr->cursor_pos - pos;
         out("%.*s", n_before, buf);
-        set_color(30);
-        set_color((scr->pane == PANE_TEXT) ? 103 : 107);
-        //set_bold(false);
+        set_color(FG_BLACK, BG_GRAY);
+        set_bold(false);
         out("%c", buf[n_before]);
-        reset_color();
-        //set_bold(true);
+        reset_color(); 
+        set_bold(scr->pane == PANE_TEXT);
         if (n_before < 16)
           out("%.*s", 16-n_before-1, buf + n_before + 1);
         out("\r\n");
       } else
         out("%s\r\n", buf);
     }
-    reset_color();
-
-    move_cursor(1, scr->w - 1);
-    out("%s", editor->err_msg);
-    clear_eol();
-
     //move_cursor(1, 10); out("%d,%d", cur_x, cur_y);
   } else
     move_cursor(1, 1);
@@ -405,7 +285,7 @@ static void cursor_right(struct hed_editor *editor)
   struct hed_screen *scr = &editor->screen;
   if (scr->cursor_pos + 1 < editor->data_len) {
     scr->cursor_pos++;
-    size_t n_page_lines = scr->h - 4;
+    size_t n_page_lines = scr->h - BORDER_LINES;
     while (scr->cursor_pos >= 16 * (scr->top_line + n_page_lines))
       scr->top_line++;
     scr->redraw_needed = true;
@@ -439,19 +319,177 @@ static void cursor_down(struct hed_editor *editor)
   struct hed_screen *scr = &editor->screen;
   if (scr->cursor_pos + 16 < editor->data_len) {
     scr->cursor_pos += 16;
-    size_t n_page_lines = scr->h - 4;
+    size_t n_page_lines = scr->h - BORDER_LINES;
     while (scr->cursor_pos >= 16 * (scr->top_line + n_page_lines))
       scr->top_line++;
     scr->redraw_needed = true;
   }
 }
 
+static void cursor_page_up(struct hed_editor *editor)
+{
+  struct hed_screen *scr = &editor->screen;
+  int cursor_delta = scr->cursor_pos - 16*scr->top_line;
+  size_t n_page_lines = scr->h - BORDER_LINES;
+  if (scr->top_line == 0)
+    cursor_delta %= 16;
+  else if (scr->top_line >= n_page_lines)
+    scr->top_line -= n_page_lines;
+  else
+    scr->top_line = 0;
+  scr->cursor_pos = 16*scr->top_line + cursor_delta;
+  scr->redraw_needed = true;
+}
+
+static void cursor_page_down(struct hed_editor *editor)
+{
+  struct hed_screen *scr = &editor->screen;
+  int cursor_delta = scr->cursor_pos - 16*scr->top_line;
+  size_t n_page_lines = scr->h - BORDER_LINES;
+  size_t bottom_line = editor->data_len / 16 + (editor->data_len % 16 != 0);
+  if (scr->top_line == bottom_line - n_page_lines) {
+    cursor_delta = editor->data_len - 16*scr->top_line - 1;
+  } else if (bottom_line > n_page_lines && scr->top_line + 2*n_page_lines < bottom_line)
+    scr->top_line += n_page_lines;
+  else
+    scr->top_line = bottom_line - n_page_lines;
+  scr->cursor_pos = 16*scr->top_line + cursor_delta;
+  scr->redraw_needed = true;
+}
+
+static void cursor_home(struct hed_editor *editor)
+{
+  struct hed_screen *scr = &editor->screen;
+  scr->cursor_pos = scr->cursor_pos / 16 * 16;
+  scr->redraw_needed = true;
+}
+
+static void cursor_end(struct hed_editor *editor)
+{
+  struct hed_screen *scr = &editor->screen;
+  scr->cursor_pos = scr->cursor_pos / 16 * 16 + 15;
+  if (scr->cursor_pos >= editor->data_len)
+    scr->cursor_pos = editor->data_len - 1;
+  scr->redraw_needed = true;
+}
+
+static void cursor_start_of_file(struct hed_editor *editor)
+{
+  struct hed_screen *scr = &editor->screen;
+  scr->cursor_pos = 0;
+  scr->top_line = 0;
+  scr->redraw_needed = true;
+}
+
+static void cursor_end_of_file(struct hed_editor *editor)
+{
+  struct hed_screen *scr = &editor->screen;
+  size_t n_page_lines = scr->h - BORDER_LINES;
+  size_t bottom_line = editor->data_len / 16 + (editor->data_len % 16 != 0);
+  scr->cursor_pos = editor->data_len - 1;
+  scr->top_line = bottom_line - n_page_lines;
+  scr->redraw_needed = true;
+}
+
+static int read_string_prompt(struct hed_editor *editor, const char *prompt, char *str, size_t max_str_len)
+{
+  struct hed_screen *scr = &editor->screen;
+
+  UNUSED(max_str_len);
+  show_msg(editor, "%s: ", prompt);
+  size_t prompt_len = strlen(prompt);
+  size_t str_len = strlen(str);
+  size_t cursor_pos = str_len;
+  char key_err[64];
+
+  editor->reading_string = true;
+  scr->redraw_needed = true;
+  while (! editor->quit) {
+    show_cursor(false);
+    if (scr->redraw_needed)
+      redraw_screen(editor);
+    reset_color();
+    set_color(FG_BLACK, BG_GRAY);
+    move_cursor(4 + prompt_len, scr->h - 1);
+    out("%s", str);
+    clear_eol();
+    move_cursor(4 + prompt_len + cursor_pos, scr->h - 1);
+    set_color(FG_BLACK, BG_GRAY);
+    show_cursor(true);
+    hed_scr_flush();
+    
+    int k = read_key(STDIN_FILENO, key_err, sizeof(key_err));
+    switch (k) {
+    case KEY_REDRAW:
+      show_cursor(false);
+      reset_color();
+      clear_screen();
+      show_cursor(true);
+      scr->redraw_needed = true;
+      break;
+      
+    case CTRL_KEY('c'):
+    case '\r':
+      editor->reading_string = false;
+      show_cursor(false);
+      clear_msg(editor);
+      return (k == '\r') ? 0 : -1;
+      
+    case KEY_HOME:        cursor_pos = 0; break;
+    case KEY_END:         cursor_pos = str_len; break;
+    case KEY_ARROW_LEFT:  if (cursor_pos > 0) cursor_pos--; break;
+    case KEY_ARROW_RIGHT: if (cursor_pos < str_len) cursor_pos++; break;
+
+    case 8:
+    case 127:
+      if (cursor_pos > 0) {
+        memmove(str + cursor_pos - 1, str + cursor_pos, str_len - cursor_pos + 1);
+        cursor_pos--;
+        str_len--;
+      }
+      break;
+
+    case KEY_DEL:
+      if (cursor_pos < str_len) {
+        memmove(str + cursor_pos, str + cursor_pos + 1, str_len - cursor_pos + 1);
+        str_len--;
+      }
+      break;
+      
+    default:
+      if (k >= 32 && k < 127) {
+        memmove(str + cursor_pos + 1, str + cursor_pos, str_len - cursor_pos + 1);
+        str[cursor_pos++] = k;
+        str_len++;
+      }
+    }
+  }
+  
+  editor->reading_string = false;
+  clear_msg(editor);
+  return 0;
+}
+
 static void process_input(struct hed_editor *editor)
 {
-  int k = read_key(editor);
+  char key_err[64];
+  int k = read_key(STDIN_FILENO, key_err, sizeof(key_err));
 
   struct hed_screen *scr = &editor->screen;
+  editor->msg_was_set = false;
   switch (k) {
+  case KEY_REDRAW:
+    reset_color();
+    clear_screen();
+    scr->redraw_needed = true;
+    break;
+
+  case KEY_BAD_SEQUENCE:
+    show_msg(editor, "Unknown key: <ESC>%s", key_err);
+    break;
+    
+    //case '\x1b': show_msg(editor, "Key: <ESC>"); break;
+    
   case CTRL_KEY('q'):
   case CTRL_KEY('x'):
     editor->quit = true;
@@ -471,141 +509,87 @@ static void process_input(struct hed_editor *editor)
     break;
 
   case CTRL_KEY('o'):
-    save_file(editor);
-    scr->redraw_needed = true;
-    break;
-    
-  case HOME_KEY:
-    scr->cursor_pos = scr->cursor_pos / 16 * 16;
-    scr->redraw_needed = true;
-    break;
-
-  case END_KEY:
-    scr->cursor_pos = scr->cursor_pos / 16 * 16 + 15;
-    if (scr->cursor_pos >= editor->data_len)
-      scr->cursor_pos = editor->data_len - 1;
-    scr->redraw_needed = true;
-    break;
-
-  case CTRL_HOME_KEY:
-    scr->cursor_pos = 0;
-    scr->top_line = 0;
-    scr->redraw_needed = true;
-    break;
-
-  case CTRL_END_KEY:
     {
-      size_t n_page_lines = scr->h - 4;
-      size_t bottom_line = editor->data_len / 16 + (editor->data_len % 16 != 0);
-      scr->cursor_pos = editor->data_len - 1;
-      scr->top_line = bottom_line - n_page_lines;
+      char filename[256];
+      strcpy(filename, editor->filename);
+      if (read_string_prompt(editor, "Read file", filename, sizeof(filename)) >= 0)
+        write_file(editor, filename);
       scr->redraw_needed = true;
     }
     break;
 
-  case PAGE_UP:
+  case CTRL_KEY('r'):
     {
-      int cursor_delta = scr->cursor_pos - 16*scr->top_line;
-      size_t n_page_lines = scr->h - 4;
-      if (scr->top_line == 0)
-        cursor_delta %= 16;
-      else if (scr->top_line >= n_page_lines)
-        scr->top_line -= n_page_lines;
-      else
-        scr->top_line = 0;
-      scr->cursor_pos = 16*scr->top_line + cursor_delta;
+      char filename[256];
+      filename[0] = '\0';
+      if (read_string_prompt(editor, "Read file", filename, sizeof(filename)) >= 0)
+        read_file(editor, filename);
       scr->redraw_needed = true;
     }
     break;
 
-  case PAGE_DOWN:
-    {
-      int cursor_delta = scr->cursor_pos - 16*scr->top_line;
-      size_t n_page_lines = scr->h - 4;
-      size_t bottom_line = editor->data_len / 16 + (editor->data_len % 16 != 0);
-      if (scr->top_line == bottom_line - n_page_lines) {
-        cursor_delta = editor->data_len - 16*scr->top_line - 1;
-      } else if (bottom_line > n_page_lines && scr->top_line + 2*n_page_lines < bottom_line)
-        scr->top_line += n_page_lines;
-      else
-        scr->top_line = bottom_line - n_page_lines;
-      scr->cursor_pos = 16*scr->top_line + cursor_delta;
-      scr->redraw_needed = true;
-    }
-    break;
+  case 0x7f:             cursor_left(editor); break;
+  case KEY_HOME:         cursor_home(editor); break;
+  case KEY_END:          cursor_end(editor);  break;
+  case KEY_CTRL_HOME:    cursor_start_of_file(editor); break;
+  case KEY_CTRL_END:     cursor_end_of_file(editor); break;
+  case KEY_PAGE_UP:      cursor_page_up(editor); break;
+  case KEY_PAGE_DOWN:    cursor_page_down(editor); break;
+  case KEY_ARROW_UP:     cursor_up(editor); break;
+  case KEY_ARROW_DOWN:   cursor_down(editor); break;
+  case KEY_ARROW_LEFT:   cursor_left(editor); break;
+  case KEY_ARROW_RIGHT:  cursor_right(editor); break;
+
+#if 1
+  case KEY_CTRL_DEL:         show_msg(editor, "key: ctrl+del");  break;
+  case KEY_CTRL_INS:         show_msg(editor, "key: ctrl+ins");  break;
+  case KEY_CTRL_PAGE_UP:     show_msg(editor, "key: ctrl+pgup"); break;
+  case KEY_CTRL_PAGE_DOWN:   show_msg(editor, "key: ctrl+pgdn"); break;
+  case KEY_CTRL_ARROW_UP:    show_msg(editor, "key: ctrl+up"); break;
+  case KEY_CTRL_ARROW_DOWN:  show_msg(editor, "key: ctrl+down"); break;
+  case KEY_CTRL_ARROW_LEFT:  show_msg(editor, "key: ctrl+left"); break;
+  case KEY_CTRL_ARROW_RIGHT: show_msg(editor, "key: ctrl+right"); break;
+
+  case KEY_SHIFT_HOME:        show_msg(editor, "key: shift+home"); break;
+  case KEY_SHIFT_END:         show_msg(editor, "key: shift+end");  break;
+  case KEY_SHIFT_DEL:         show_msg(editor, "key: shift+del");  break;
+  case KEY_SHIFT_INS:         show_msg(editor, "key: shift+ins");  break;
+  case KEY_SHIFT_PAGE_UP:     show_msg(editor, "key: shift+pgup"); break;
+  case KEY_SHIFT_PAGE_DOWN:   show_msg(editor, "key: shift+pgdn"); break;
+  case KEY_SHIFT_ARROW_UP:    show_msg(editor, "key: shift+up"); break;
+  case KEY_SHIFT_ARROW_DOWN:  show_msg(editor, "key: shift+down"); break;
+  case KEY_SHIFT_ARROW_LEFT:  show_msg(editor, "key: shift+left"); break;
+  case KEY_SHIFT_ARROW_RIGHT: show_msg(editor, "key: shift+right"); break;
     
-  case ARROW_UP:
-    cursor_up(editor);
-    break;
-    
-  case ARROW_DOWN:
-    cursor_down(editor);
-    break;
+  case KEY_DEL:  show_msg(editor, "key: del");  break;
+  case KEY_INS:  show_msg(editor, "key: ins");  break;
 
-  case ARROW_LEFT:
-    cursor_left(editor);
-    break;
-    
-  case ARROW_RIGHT:
-    cursor_right(editor);
-    break;
+  case KEY_F1:  show_msg(editor, "key: F1");  break;
+  case KEY_F2:  show_msg(editor, "key: F2");  break;
+  case KEY_F3:  show_msg(editor, "key: F3");  break;
+  case KEY_F4:  show_msg(editor, "key: F4");  break;
+  case KEY_F5:  show_msg(editor, "key: F5");  break;
+  case KEY_F6:  show_msg(editor, "key: F6");  break;
+  case KEY_F7:  show_msg(editor, "key: F7");  break;
+  case KEY_F8:  show_msg(editor, "key: F8");  break;
+  case KEY_F9:  show_msg(editor, "key: F9");  break;
+  case KEY_F10: show_msg(editor, "key: F10"); break;
+  case KEY_F11: show_msg(editor, "key: F11"); break;
+  case KEY_F12: show_msg(editor, "key: F12"); break;
 
-#if 0
-  case CTRL_HOME_KEY:    err_msg(editor, "ctrl+home"); break;
-  case CTRL_END_KEY:     err_msg(editor, "ctrl+end");  break;
-  case CTRL_DEL_KEY:     err_msg(editor, "ctrl+del");  break;
-  case CTRL_INS_KEY:     err_msg(editor, "ctrl+ins");  break;
-  case CTRL_PAGE_UP:     err_msg(editor, "ctrl+pgup"); break;
-  case CTRL_PAGE_DOWN:   err_msg(editor, "ctrl+pgdn"); break;
-  case CTRL_ARROW_UP:    err_msg(editor, "ctrl+up"); break;
-  case CTRL_ARROW_DOWN:  err_msg(editor, "ctrl+down"); break;
-  case CTRL_ARROW_LEFT:  err_msg(editor, "ctrl+left"); break;
-  case CTRL_ARROW_RIGHT: err_msg(editor, "ctrl+right"); break;
-
-  case SHIFT_HOME_KEY:    err_msg(editor, "shift+home"); break;
-  case SHIFT_END_KEY:     err_msg(editor, "shift+end");  break;
-  case SHIFT_DEL_KEY:     err_msg(editor, "shift+del");  break;
-  case SHIFT_INS_KEY:     err_msg(editor, "shift+ins");  break;
-  case SHIFT_PAGE_UP:     err_msg(editor, "shift+pgup"); break;
-  case SHIFT_PAGE_DOWN:   err_msg(editor, "shift+pgdn"); break;
-  case SHIFT_ARROW_UP:    err_msg(editor, "shift+up"); break;
-  case SHIFT_ARROW_DOWN:  err_msg(editor, "shift+down"); break;
-  case SHIFT_ARROW_LEFT:  err_msg(editor, "shift+left"); break;
-  case SHIFT_ARROW_RIGHT: err_msg(editor, "shift+right"); break;
-    
-  case DEL_KEY:  err_msg(editor, "del");  break;
-  case INS_KEY:  err_msg(editor, "ins");  break;
-
-  case F1_KEY:  err_msg(editor, "F1");  break;
-  case F2_KEY:  err_msg(editor, "F2");  break;
-  case F3_KEY:  err_msg(editor, "F3");  break;
-  case F4_KEY:  err_msg(editor, "F4");  break;
-  case F5_KEY:  err_msg(editor, "F5");  break;
-  case F6_KEY:  err_msg(editor, "F6");  break;
-  case F7_KEY:  err_msg(editor, "F7");  break;
-  case F8_KEY:  err_msg(editor, "F8");  break;
-  case F9_KEY:  err_msg(editor, "F9");  break;
-  case F10_KEY: err_msg(editor, "F10"); break;
-  case F11_KEY: err_msg(editor, "F11"); break;
-  case F12_KEY: err_msg(editor, "F12"); break;
-
-  case SHIFT_F1_KEY:  err_msg(editor, "shift+F1");  break;
-  case SHIFT_F2_KEY:  err_msg(editor, "shift+F2");  break;
-  case SHIFT_F3_KEY:  err_msg(editor, "shift+F3");  break;
-  case SHIFT_F4_KEY:  err_msg(editor, "shift+F4");  break;
-  case SHIFT_F5_KEY:  err_msg(editor, "shift+F5");  break;
-  case SHIFT_F6_KEY:  err_msg(editor, "shift+F6");  break;
-  case SHIFT_F7_KEY:  err_msg(editor, "shift+F7");  break;
-  case SHIFT_F8_KEY:  err_msg(editor, "shift+F8");  break;
-  case SHIFT_F9_KEY:  err_msg(editor, "shift+F9");  break;
-  case SHIFT_F10_KEY: err_msg(editor, "shift+F10"); break;
-  case SHIFT_F11_KEY: err_msg(editor, "shift+F11"); break;
-  case SHIFT_F12_KEY: err_msg(editor, "shift+F12"); break;
+  case KEY_SHIFT_F1:  show_msg(editor, "key: shift+F1");  break;
+  case KEY_SHIFT_F2:  show_msg(editor, "key: shift+F2");  break;
+  case KEY_SHIFT_F3:  show_msg(editor, "key: shift+F3");  break;
+  case KEY_SHIFT_F4:  show_msg(editor, "key: shift+F4");  break;
+  case KEY_SHIFT_F5:  show_msg(editor, "key: shift+F5");  break;
+  case KEY_SHIFT_F6:  show_msg(editor, "key: shift+F6");  break;
+  case KEY_SHIFT_F7:  show_msg(editor, "key: shift+F7");  break;
+  case KEY_SHIFT_F8:  show_msg(editor, "key: shift+F8");  break;
+  case KEY_SHIFT_F9:  show_msg(editor, "key: shift+F9");  break;
+  case KEY_SHIFT_F10: show_msg(editor, "key: shift+F10"); break;
+  case KEY_SHIFT_F11: show_msg(editor, "key: shift+F11"); break;
+  case KEY_SHIFT_F12: show_msg(editor, "key: shift+F12"); break;
 #endif
-
-  case 0x7f:
-    cursor_left(editor);
-    break;
   }
 
   bool reset_editing_byte = true;
@@ -644,8 +628,13 @@ static void process_input(struct hed_editor *editor)
     scr->redraw_needed = true;
   }
 
+  if (! editor->msg_was_set && editor->cur_msg[0] != '\0') {
+    editor->cur_msg[0] = '\0';
+    scr->redraw_needed = true;
+  }
+  
 #if 0
-  err_msg(editor, "key: %d", k);
+  show_msg(editor, "key: %d", k);
 #endif
 }
 
@@ -661,7 +650,7 @@ int hed_run_editor(struct hed_editor *editor, const char *filename)
   clear_screen();
     
   if (filename)
-    open_file(editor, filename);
+    read_file(editor, filename);
 
   editor->quit = false;
   while (! editor->quit) {
@@ -670,6 +659,7 @@ int hed_run_editor(struct hed_editor *editor, const char *filename)
     process_input(editor);
   }
 
+  reset_color();
   clear_screen();
   show_cursor(true);
   hed_scr_flush();

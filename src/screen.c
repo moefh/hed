@@ -34,6 +34,8 @@ void hed_init_screen(struct hed_screen *scr)
   screen->window_changed = true;
   screen->redraw_needed = true;
   screen->editing_byte = false;
+  screen->utf8_box_draw = true;
+  screen->vt100_box_draw = true;
   screen->top_line = 0;
   screen->cursor_pos = 0;
   screen->pane = PANE_HEX;
@@ -72,40 +74,59 @@ void hed_scr_out(const char *fmt, ...)
   screen->buf_len += len;
 }
 
-void hed_scr_line_draw(const char *str)
+/*
+ * Convenience function for box drawing.
+ * 
+ * The corner characters (1, 3, 7, 9) were chosen because their
+ * corners correspond to their positions in a keyboard number pad.
+ */
+void hed_scr_box_draw(const char *str)
 {
-#if 0
-  hed_scr_out("\x1b(0");
-  for (const char *p = str; *p != '\0'; p++) {
-    switch (*p) {
-    case '|': hed_scr_out("\x78"); break;
-    case '-': hed_scr_out("\x71"); break;
-    case '7': hed_scr_out("\x6c"); break;
-    case '9': hed_scr_out("\x6b"); break;
-    case '1': hed_scr_out("\x6d"); break;
-    case '3': hed_scr_out("\x6a"); break;
-    default: hed_scr_out("%c", *p); break;
+  if (screen->utf8_box_draw) {
+    for (const char *p = str; *p != '\0'; p++) {
+      switch (*p) {
+      case '|': hed_scr_out("\u2502"); break;
+      case '-': hed_scr_out("\u2500"); break;
+      case '7': hed_scr_out("\u250c"); break;
+      case '9': hed_scr_out("\u2510"); break;
+      case '1': hed_scr_out("\u2514"); break;
+      case '3': hed_scr_out("\u2518"); break;
+      default: hed_scr_out("%c", *p); break;
+      }
+    }
+  } else if (screen->vt100_box_draw) {
+    hed_scr_out("\x1b(0");
+    for (const char *p = str; *p != '\0'; p++) {
+      switch (*p) {
+      case '|': hed_scr_out("\x78"); break;
+      case '-': hed_scr_out("\x71"); break;
+      case '7': hed_scr_out("\x6c"); break;
+      case '9': hed_scr_out("\x6b"); break;
+      case '1': hed_scr_out("\x6d"); break;
+      case '3': hed_scr_out("\x6a"); break;
+      default: hed_scr_out("%c", *p); break;
+      }
+    }
+    hed_scr_out("\x1b(B");
+  } else {
+    for (const char *p = str; *p != '\0'; p++) {
+      switch (*p) {
+      case '7': hed_scr_out("+"); break;
+      case '9': hed_scr_out("+"); break;
+      case '1': hed_scr_out("+"); break;
+      case '3': hed_scr_out("+"); break;
+      default: hed_scr_out("%c", *p); break;
+      }
     }
   }
-  hed_scr_out("\x1b(B");
-#else
-  for (const char *p = str; *p != '\0'; p++) {
-    switch (*p) {
-    case '|': hed_scr_out("\u2502"); break;
-    case '-': hed_scr_out("\u2500"); break;
-    case '7': hed_scr_out("\u250c"); break;
-    case '9': hed_scr_out("\u2510"); break;
-    case '1': hed_scr_out("\u2514"); break;
-    case '3': hed_scr_out("\u2518"); break;
-    default: hed_scr_out("%c", *p); break;
-    }
-  }
-#endif
 }
 
-void hed_scr_set_color(int color)
+void hed_scr_set_color(int c1, int c2)
 {
-  hed_scr_out("\x1b[%dm", color);
+  if (c1 >= 0)
+    hed_scr_out("\x1b[%dm", c1);
+  if (c2 >= 0)
+    hed_scr_out("\x1b[%dm", c2);
 }
 
 void hed_scr_set_bold(bool bold)
@@ -113,7 +134,7 @@ void hed_scr_set_bold(bool bold)
   if (bold)
     hed_scr_out("\x1b[1m");
   else
-    hed_scr_out("\x1b[21m");
+    hed_scr_out("\x1b[22m");
 }
 
 void hed_scr_reverse_color(bool reverse)

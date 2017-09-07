@@ -5,7 +5,7 @@ LDFLAGS =
 
 TARGETS = debug release
 
-TEST_FILE = test.txt
+TEST_FILE = src/editor.o
 
 .PHONY: $(TARGETS) build clean check
 
