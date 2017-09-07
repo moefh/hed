@@ -524,7 +524,9 @@ static void process_input(struct hed_editor *editor)
     break;
 
   case CTRL_KEY('o'):
-    {
+    if (! editor->data) {
+      show_msg(editor, "No data to write!");
+    } else {
       char filename[256];
       if (editor->filename)
         snprintf(filename, sizeof(filename), "%s", editor->filename);
