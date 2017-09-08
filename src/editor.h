@@ -35,6 +35,7 @@ struct hed_editor {
 void hed_init_editor(struct hed_editor *editor);
 int hed_read_file(struct hed_editor *editor, const char *filename);
 int hed_set_data(struct hed_editor *editor, uint8_t *data, size_t data_len);
-int hed_run_editor(struct hed_editor *editor);
+void hed_set_cursor_pos(struct hed_editor *editor, size_t pos, size_t visible_len_after);
+int hed_run_editor(struct hed_editor *editor, size_t start_cursor_pos);
 
 #endif /* EDITOR_H_FILE */

@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
 
 #include "editor.h"
 
@@ -36,26 +37,44 @@ static uint8_t *read_stdin(size_t *ret_len)
 
 static void print_help(const char *progname)
 {
-  printf("%s [options] [FILE]\n", progname);
+  printf("%s [options] [+OFFSET [FILE]]\n", progname);
   printf("\n"
          "options:\n"
-         " -h               show this help\n"
+         " -V               show version information and exit\n"
+         " -h               show this help and exit\n"
          " -v               view mode (read-only)\n"
-         "\n"
-         "FILE can be - to read from the standard input\n");
+         " +OFFSET          start at OFFSET (may have prefix 0x or 0 for hex or octal)\n"
+         " FILE             file to edit or view, can be - for stdin\n");
+}
+
+static void print_version()
+{
+  printf("hed, a tiny hex editor\n");
+  printf("Version " HED_VERSION " compiled on " __DATE__ "\n");
+  printf("Copyright (C) 2017 Ricardo R. Massaro\n");
+  printf("Source code: https://github.com/ricardo-massaro/hed\n");
 }
 
 int main(int argc, char **argv)
 {
   const char *filename = NULL;
   bool view_mode = false;
-  bool show_help = false;
+  unsigned long offset = 0;
 
   for (int i = 1; i < argc; i++) {
-    if (argv[i][0] == '-') {
+    if (argv[i][0] == '+') {
+      char *end = NULL;
+      errno = 0;
+      offset = strtoul(argv[i] + 1, &end, 0);
+      if (errno != 0 || *end != '\0') {
+        fprintf(stderr, "%s: invalid offset: %s\n", argv[0], argv[i] + 1);
+        exit(1);
+      }
+    } else if (argv[i][0] == '-') {
       switch (argv[i][1]) {
+      case 'V': print_version(); exit(0);
+      case 'h': print_help(argv[0]); exit(0);
       case 'v': view_mode = true; break;
-      case 'h': show_help = true; break;
       case '\0': filename = argv[i]; break;
       default:
         fprintf(stderr, "%s: unknown option '%s'\n", argv[0], argv[i]);
@@ -70,11 +89,6 @@ int main(int argc, char **argv)
     }
   }
 
-  if (show_help) {
-    print_help(argv[0]);
-    exit(0);
-  }
-  
   struct hed_editor editor;
   hed_init_editor(&editor);
   if (view_mode)
@@ -91,5 +105,5 @@ int main(int argc, char **argv)
       hed_read_file(&editor, argv[1]);
   }
   
-  return hed_run_editor(&editor);
+  return hed_run_editor(&editor, offset);
 }

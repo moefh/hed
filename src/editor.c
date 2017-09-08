@@ -12,7 +12,7 @@
 #include "term.h"
 #include "input.h"
 
-#define HED_BANNER       "hed v0.1"
+#define HED_BANNER       "hed v" HED_VERSION
 #define HEADER_LINES     2
 #define FOOTER_LINES     2
 #define BORDER_LINES     (HEADER_LINES+FOOTER_LINES)
@@ -32,6 +32,9 @@ void hed_init_editor(struct hed_editor *editor)
   editor->half_byte_edited = false;
   editor->search_str[0] = '\0';
   editor->read_only = false;
+
+  editor->screen.cursor_pos = 0;
+  editor->screen.top_line = 0;
 }
 
 static void destroy_editor(struct hed_editor *editor)
@@ -295,6 +298,34 @@ static void redraw_screen(struct hed_editor *editor)
   
   hed_scr_flush();
   scr->redraw_needed = false;
+}
+
+void hed_set_cursor_pos(struct hed_editor *editor, size_t pos, size_t visible_len_after)
+{
+  struct hed_screen *scr = &editor->screen;
+  size_t n_page_lines = scr->h - BORDER_LINES;
+  size_t last_line = editor->data_len / 16 + (editor->data_len % 16 != 0);
+
+  if (pos >= editor->data_len)
+    pos = (editor->data_len == 0) ? 0 : editor->data_len-1;
+  if (pos + visible_len_after >= editor->data_len)
+    visible_len_after = editor->data_len - pos;
+  
+  scr->cursor_pos = pos;
+
+  // ensure cursor and 'visible_len_after' bytes after it are visible
+  if (scr->cursor_pos / 16 < scr->top_line) {
+    scr->top_line = scr->cursor_pos / 16;
+  } else if ((scr->cursor_pos+visible_len_after-1) / 16 >= scr->top_line + n_page_lines-1) {
+    scr->top_line = (scr->cursor_pos+visible_len_after-1) / 16 - (n_page_lines - 1);
+    if (last_line < n_page_lines)
+      scr->top_line = 0;
+    else if (scr->top_line + n_page_lines/2 > last_line)
+      scr->top_line = last_line - n_page_lines/2;
+    else
+      scr->top_line += n_page_lines/2;
+  }
+  scr->redraw_needed = true;
 }
 
 static void cursor_right(struct hed_editor *editor)
@@ -615,7 +646,8 @@ static int perform_search(struct hed_editor *editor)
 
   // TODO: Boyer-Moore search?
   bool found = false;
-  for (size_t pos = scr->cursor_pos+1; pos + search_len < editor->data_len; pos++) {
+  size_t pos;
+  for (pos = scr->cursor_pos+1; pos + search_len < editor->data_len; pos++) {
     if (memcmp(editor->data + pos, search_bytes, search_len) == 0) {
       found = true;
       scr->cursor_pos = pos;
@@ -624,22 +656,7 @@ static int perform_search(struct hed_editor *editor)
   }
   if (! found)
     return show_msg((editor->pane == HED_PANE_HEX) ? "Byte sequence not found" : "Text not found");
-
-  // ensure the position is visible
-  size_t n_page_lines = scr->h - BORDER_LINES;
-  size_t last_line = editor->data_len / 16 + (editor->data_len % 16 != 0);
-  if (scr->cursor_pos / 16 < scr->top_line) {
-    scr->top_line = scr->cursor_pos / 16;
-  } else if ((scr->cursor_pos+search_len-1) / 16 >= scr->top_line + n_page_lines-1) {
-    scr->top_line = (scr->cursor_pos+search_len-1) / 16 - (n_page_lines - 1);
-    if (last_line < n_page_lines)
-      scr->top_line = 0;
-    else if (scr->top_line + n_page_lines/2 > last_line)
-      scr->top_line = last_line - n_page_lines/2;
-    else
-      scr->top_line += n_page_lines/2;
-  }
-  scr->redraw_needed = true;
+  hed_set_cursor_pos(editor, pos, search_len);
   return 0;
 }
 
@@ -857,13 +874,14 @@ static void process_input(struct hed_editor *editor)
 #endif
 }
 
-int hed_run_editor(struct hed_editor *editor)
+int hed_run_editor(struct hed_editor *editor, size_t start_cursor_pos)
 {
   if (hed_init_screen(&editor->screen) < 0) {
     fprintf(stderr, "ERROR setting up terminal\n");
     return -1;
   }
-
+  hed_set_cursor_pos(editor, start_cursor_pos, 16);
+  
   show_cursor(false);
   clear_screen();
     

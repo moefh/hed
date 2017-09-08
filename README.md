@@ -1,5 +1,6 @@
 # hed
-Tiny hex editor
+
+A tiny [nano](https://www.nano-editor.org/)-like hex editor
 
 ## Features
 
@@ -8,6 +9,7 @@ Tiny hex editor
 - Edit in hex and text panes
 - Read and write files
 - Read from standard input
+- Search text or byte sequences
 
 ## License
 
