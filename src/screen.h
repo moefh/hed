@@ -74,4 +74,7 @@ void hed_scr_clear_screen(void);
 #define show_cursor     hed_scr_show_cursor
 #define clear_screen    hed_scr_clear_screen
 
+#define show_msg        hed_scr_show_msg
+#define clear_msg       hed_scr_clear_msg
+
 #endif /* SCREEN_H_FILE */

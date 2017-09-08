@@ -6,8 +6,11 @@
 #include "hed.h"
 #include "screen.h"
 
+#define KEY_HELP_SPACING 16
+
 enum hed_edit_mode {
   HED_MODE_DEFAULT,
+  HED_MODE_READ_FILENAME,
   HED_MODE_READ_STRING,
   HED_MODE_READ_YESNO,
 };
@@ -37,5 +40,7 @@ int hed_read_file(struct hed_editor *editor, const char *filename);
 int hed_set_data(struct hed_editor *editor, uint8_t *data, size_t data_len);
 void hed_set_cursor_pos(struct hed_editor *editor, size_t pos, size_t visible_len_after);
 int hed_run_editor(struct hed_editor *editor, size_t start_cursor_pos);
+
+void hed_draw_key_help(int x, int y, const char *key, const char *help);
 
 #endif /* EDITOR_H_FILE */

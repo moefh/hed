@@ -11,15 +11,11 @@
 #include "screen.h"
 #include "term.h"
 #include "input.h"
+#include "file_sel.h"
 
-#define HED_BANNER       "hed v" HED_VERSION
 #define HEADER_LINES     2
 #define FOOTER_LINES     2
 #define BORDER_LINES     (HEADER_LINES+FOOTER_LINES)
-#define KEY_HELP_SPACING 16
-
-#define show_msg  hed_scr_show_msg
-#define clear_msg hed_scr_clear_msg
 
 void hed_init_editor(struct hed_editor *editor)
 {
@@ -148,9 +144,7 @@ int hed_read_file(struct hed_editor *editor, const char *filename)
   return -1;
 }
 
-#define DUMP_CHAR(c)  (((c)>=32 && (c)<127) ? (c) : '?')
-
-static void show_header(struct hed_editor *editor)
+static void draw_header(struct hed_editor *editor)
 {
   struct hed_screen *scr = &editor->screen;
 
@@ -168,7 +162,7 @@ static void show_header(struct hed_editor *editor)
   reset_color();
 }
 
-static void show_key_help(int x, int y, const char *key, const char *help)
+void hed_draw_key_help(int x, int y, const char *key, const char *help)
 {
   move_cursor(x, y);
   set_color(FG_BLACK, BG_GRAY);
@@ -181,7 +175,7 @@ static void show_key_help(int x, int y, const char *key, const char *help)
     out(" ");
 }
 
-static void show_footer(struct hed_editor *editor)
+static void draw_footer(struct hed_editor *editor)
 {
   struct hed_screen *scr = &editor->screen;
 
@@ -194,28 +188,33 @@ static void show_footer(struct hed_editor *editor)
   clear_eol();
 
   switch (editor->edit_mode) {
+  case HED_MODE_READ_FILENAME:
+    hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^C", "Cancel");
+    hed_draw_key_help(1 + 1*KEY_HELP_SPACING, scr->h, "^T", "To Files");
+    break;
+
   case HED_MODE_READ_STRING:
-    show_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^C", "Cancel");
-    //show_key_help(1 + 1*KEY_HELP_SPACING, scr->h, "RET", "Accept");
+    hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^C", "Cancel");
+    //hed_draw_key_help(1 + 1*KEY_HELP_SPACING, scr->h, "RET", "Accept");
     break;
 
   case HED_MODE_READ_YESNO:
-    show_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^C", "Cancel");
-    show_key_help(1 + 1*KEY_HELP_SPACING, scr->h, " Y", "Yes");
-    show_key_help(1 + 2*KEY_HELP_SPACING, scr->h, " N", "No");
+    hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^C", "Cancel");
+    hed_draw_key_help(1 + 1*KEY_HELP_SPACING, scr->h, " Y", "Yes");
+    hed_draw_key_help(1 + 2*KEY_HELP_SPACING, scr->h, " N", "No");
     break;
 
   case HED_MODE_DEFAULT:
-    show_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^X", "Exit");
-    show_key_help(1 + 1*KEY_HELP_SPACING, scr->h, "^O", "Write File");
-    show_key_help(1 + 2*KEY_HELP_SPACING, scr->h, "^R", "Read File");
-    show_key_help(1 + 3*KEY_HELP_SPACING, scr->h, "TAB", "Switch Mode");
-    show_key_help(1 + 4*KEY_HELP_SPACING, scr->h, "^W", "Where Is");
+    hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^X", "Exit");
+    hed_draw_key_help(1 + 1*KEY_HELP_SPACING, scr->h, "^O", "Write File");
+    hed_draw_key_help(1 + 2*KEY_HELP_SPACING, scr->h, "^R", "Read File");
+    hed_draw_key_help(1 + 3*KEY_HELP_SPACING, scr->h, "TAB", "Switch Mode");
+    hed_draw_key_help(1 + 4*KEY_HELP_SPACING, scr->h, "^W", "Where Is");
   }
   clear_eol();
 }
 
-static void redraw_screen(struct hed_editor *editor)
+static void draw_main_screen(struct hed_editor *editor)
 {
   struct hed_screen *scr = &editor->screen;
 
@@ -225,8 +224,8 @@ static void redraw_screen(struct hed_editor *editor)
     scr->window_changed = false;
   }
 
-  show_header(editor);
-  show_footer(editor);
+  draw_header(editor);
+  draw_footer(editor);
 
   //static int count = 0; move_cursor(scr->w-5, 1); out("%5d", count++ % 1000);
   
@@ -446,7 +445,7 @@ static void cursor_end_of_file(struct hed_editor *editor)
   scr->redraw_needed = true;
 }
 
-static int prompt_read_yesno(struct hed_editor *editor, const char *prompt, bool *response)
+static int prompt_get_yesno(struct hed_editor *editor, const char *prompt, bool *response)
 {
   struct hed_screen *scr = &editor->screen;
 
@@ -458,7 +457,7 @@ static int prompt_read_yesno(struct hed_editor *editor, const char *prompt, bool
   scr->redraw_needed = true;
   while (! editor->quit) {
     if (scr->redraw_needed)
-      redraw_screen(editor);
+      draw_main_screen(editor);
     move_cursor(3 + prompt_len, scr->h - 1);
     show_cursor(true);
     hed_scr_flush();
@@ -489,22 +488,21 @@ static int prompt_read_yesno(struct hed_editor *editor, const char *prompt, bool
   return -1;
 }
 
-static int prompt_read_string(struct hed_editor *editor, const char *prompt, char *str, size_t max_str_len)
+static int prompt_get_text(struct hed_editor *editor, const char *prompt, char *str, size_t max_str_len)
 {
   struct hed_screen *scr = &editor->screen;
 
-  show_msg("%s: ", prompt);
   size_t prompt_len = strlen(prompt);
   size_t str_len = strlen(str);
   size_t cursor_pos = str_len;
   char key_err[64];
 
-  editor->edit_mode = HED_MODE_READ_STRING;
   scr->redraw_needed = true;
   while (! editor->quit) {
     show_cursor(false);
+    show_msg("%s: ", prompt);
     if (scr->redraw_needed)
-      redraw_screen(editor);
+      draw_main_screen(editor);
     reset_color();
     set_color(FG_BLACK, BG_GRAY);
     move_cursor(4 + prompt_len, scr->h - 1);
@@ -531,12 +529,26 @@ static int prompt_read_string(struct hed_editor *editor, const char *prompt, cha
       show_cursor(false);
       clear_msg();
       return (k == '\r') ? 0 : -1;
-      
+
     case KEY_HOME:        cursor_pos = 0; break;
     case KEY_END:         cursor_pos = str_len; break;
     case KEY_ARROW_LEFT:  if (cursor_pos > 0) cursor_pos--; break;
     case KEY_ARROW_RIGHT: if (cursor_pos < str_len) cursor_pos++; break;
 
+    case CTRL_KEY('t'):
+      if (editor->edit_mode == HED_MODE_READ_FILENAME) {
+        show_cursor(false);
+        char filename[256];
+        if (hed_select_file(editor, filename, sizeof(filename)) >= 0) {
+          strncpy(str, filename, max_str_len-1);
+          str[max_str_len-1] = '\0';
+          return 0;
+        }
+        show_cursor(true);
+        scr->redraw_needed = true;
+      }
+      break;
+      
     case 8:
     case 127:
       if (cursor_pos > 0) {
@@ -567,6 +579,18 @@ static int prompt_read_string(struct hed_editor *editor, const char *prompt, cha
   return 0;
 }
 
+static int prompt_get_string(struct hed_editor *editor, const char *prompt, char *str, size_t max_str_len)
+{
+  editor->edit_mode = HED_MODE_READ_STRING;
+  return prompt_get_text(editor, prompt, str, max_str_len);
+}
+
+static int prompt_get_filename(struct hed_editor *editor, const char *prompt, char *str, size_t max_str_len)
+{
+  editor->edit_mode = HED_MODE_READ_FILENAME;
+  return prompt_get_text(editor, prompt, str, max_str_len);
+}
+  
 static int prompt_save_file(struct hed_editor *editor)
 {
   char filename[256];
@@ -574,7 +598,7 @@ static int prompt_save_file(struct hed_editor *editor)
     snprintf(filename, sizeof(filename), "%s", editor->filename);
   else
     filename[0] = '\0';
-  if (prompt_read_string(editor, "Write file", filename, sizeof(filename)) < 0) {
+  if (prompt_get_filename(editor, "Write file", filename, sizeof(filename)) < 0) {
     editor->screen.redraw_needed = true;
     return -1;
   }
@@ -586,7 +610,7 @@ static int prompt_read_file(struct hed_editor *editor)
 {
   char filename[256];
   filename[0] = '\0';
-  if (prompt_read_string(editor, "Read file", filename, sizeof(filename)) < 0) {
+  if (prompt_get_filename(editor, "Read file", filename, sizeof(filename)) < 0) {
     editor->screen.redraw_needed = true;
     return -1;
   }
@@ -684,7 +708,7 @@ static void process_input(struct hed_editor *editor)
   case CTRL_KEY('x'):
     if (editor->modified) {
       bool save_changes = true;
-      if (prompt_read_yesno(editor, "Save changes?  (Answering no will DISCARD changes.)", &save_changes) < 0)
+      if (prompt_get_yesno(editor, "Save changes?  (Answering no will DISCARD changes.)", &save_changes) < 0)
         break;
       if (save_changes) {
         if (editor->filename) {
@@ -724,7 +748,7 @@ static void process_input(struct hed_editor *editor)
   case CTRL_KEY('r'):
     if (editor->data && editor->modified) {
       bool save_changes = true;
-      if (prompt_read_yesno(editor, "Save changes?  (Answering no will DISCARD changes.)", &save_changes) < 0)
+      if (prompt_get_yesno(editor, "Save changes?  (Answering no will DISCARD changes.)", &save_changes) < 0)
         break;
       if (save_changes) {
         if (editor->filename) {
@@ -755,7 +779,7 @@ static void process_input(struct hed_editor *editor)
       }
       char search_str[sizeof(editor->search_str)];
       search_str[0] = '\0';
-      if (prompt_read_string(editor, prompt, search_str, sizeof(search_str)) < 0)
+      if (prompt_get_filename(editor, prompt, search_str, sizeof(search_str)) < 0)
         break;
       if (search_str[0] != '\0')
         strcpy(editor->search_str, search_str);
@@ -767,7 +791,7 @@ static void process_input(struct hed_editor *editor)
     if (editor->data) {
       char location_str[256];
       location_str[0] = '\0';
-      if (prompt_read_string(editor, "Go to offset", location_str, sizeof(location_str)) < 0)
+      if (prompt_get_string(editor, "Go to offset", location_str, sizeof(location_str)) < 0)
         break;
       char *end = NULL;
       errno = 0;
@@ -908,7 +932,7 @@ int hed_run_editor(struct hed_editor *editor, size_t start_cursor_pos)
   editor->quit = false;
   while (! editor->quit) {
     if (editor->screen.redraw_needed)
-      redraw_screen(editor);
+      draw_main_screen(editor);
     process_input(editor);
   }
 
