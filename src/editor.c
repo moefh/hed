@@ -130,11 +130,13 @@ int hed_read_file(struct hed_editor *editor, const char *filename)
     editor->data_len = size;
     editor->filename = new_filename;
     editor->modified = false;
+    editor->screen.cursor_pos = 0;
+    editor->screen.top_line = 0;
     fclose(f);
     return 0;
   }
 
-  show_msg("ERROR: reading from pipes not implemented");
+  show_msg("ERROR: reading from non-seekable files implemented");
 
  err:
   if (new_filename)
@@ -185,7 +187,6 @@ static void show_footer(struct hed_editor *editor)
   if (scr->cur_msg[0] != '\0') {
     set_color(FG_BLACK, BG_GRAY);
     out(" %s", scr->cur_msg);
-    clear_eol();
   }
   clear_eol();
 
@@ -560,13 +561,57 @@ static int prompt_read_file(struct hed_editor *editor)
   return hed_read_file(editor, filename);
 }
 
+static size_t conv_search_bytes(uint8_t *bytes, size_t max_len, const char *search_str)
+{
+  size_t len = 0;
+  const char *src = search_str;
+  while (*src != '\0' && len < 2*max_len) {
+    uint8_t nibble = 0;
+    while (*src != '\0') {
+      if (*src >= '0' && *src <= '9') {
+        nibble = *src - '0';
+        src++;
+        break;
+      } else if (*src >= 'a' && *src <= 'f') {
+        nibble = *src - 'a' + 10;
+        src++;
+        break;
+      } else if (*src >= 'A' && *src <= 'F') {
+        nibble = *src - 'A' + 10;
+        src++;
+        break;
+      } else if (*src == ' ' || *src == ',') {
+        src++;
+      } else
+        return 0;
+    }
+
+    if (len % 2 == 0)
+      bytes[len/2] = nibble << 4;
+    else
+      bytes[len/2] |= nibble;
+    len++;
+  }
+  if (len % 2 != 0)
+    return 0;
+  return len/2;
+}
+
 static int perform_search(struct hed_editor *editor)
 {
   struct hed_screen *scr = &editor->screen;
 
-  // TODO: convert from hex bytes if we're in HEX pane
   size_t search_len = strlen(editor->search_str);
-  uint8_t *search_bytes = (uint8_t *) editor->search_str;
+  uint8_t *search_bytes;
+  uint8_t search_buf[sizeof(editor->search_str)];
+  if (editor->pane == HED_PANE_TEXT) {
+    search_bytes = (uint8_t *) editor->search_str;
+  } else {
+    search_len = conv_search_bytes(search_buf, sizeof(search_buf), editor->search_str);
+    if (search_len == 0)
+      return show_msg("Invalid byte sequence (must be a list pairs of hex numbers)");
+    search_bytes = search_buf;
+  }
 
   // TODO: Boyer-Moore search?
   bool found = false;
@@ -577,10 +622,8 @@ static int perform_search(struct hed_editor *editor)
       break;
     }
   }
-  if (! found) {
-    show_msg("Text not found");
-    return -1;
-  }
+  if (! found)
+    return show_msg((editor->pane == HED_PANE_HEX) ? "Byte sequence not found" : "Text not found");
 
   // ensure the position is visible
   size_t n_page_lines = scr->h - BORDER_LINES;
@@ -679,7 +722,7 @@ static void process_input(struct hed_editor *editor)
 
   case CTRL_KEY('w'):
     if (editor->data) {
-      const char *prompt = "Search Text";
+      const char *prompt = (editor->pane == HED_PANE_HEX) ? "Search bytes" : "Search text";
       char prompt_str[40];
       if (editor->search_str[0] != '\0') {
         size_t prompt_len = strlen(prompt);
