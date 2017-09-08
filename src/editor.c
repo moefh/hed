@@ -13,10 +13,6 @@
 #include "input.h"
 #include "file_sel.h"
 
-#define HEADER_LINES     2
-#define FOOTER_LINES     2
-#define BORDER_LINES     (HEADER_LINES+FOOTER_LINES)
-
 void hed_init_editor(struct hed_editor *editor)
 {
   editor->filename = NULL;

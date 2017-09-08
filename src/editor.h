@@ -6,6 +6,9 @@
 #include "hed.h"
 #include "screen.h"
 
+#define HEADER_LINES     2
+#define FOOTER_LINES     2
+#define BORDER_LINES     (HEADER_LINES+FOOTER_LINES)
 #define KEY_HELP_SPACING 16
 
 enum hed_edit_mode {

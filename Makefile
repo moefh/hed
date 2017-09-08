@@ -25,4 +25,4 @@ build:
 	$(MAKE) -C src CFLAGS="$(CFLAGS) $(TARGET_CFLAGS)" CC="$(CC)" LDFLAGS="$(LDFLAGS) $(TARGET_LDFLAGS)" LIBS="$(LIBS)"
 
 check: debug
-	cat $(TEST_FILE) | valgrind --track-origins=yes --leak-check=full --show-leak-kinds=all --log-file=x.hex src/hed -
+	cat $(TEST_FILE) | valgrind --track-origins=yes --leak-check=full --show-leak-kinds=all src/hed - 2>x.hex
