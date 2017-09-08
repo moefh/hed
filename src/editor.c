@@ -313,17 +313,19 @@ void hed_set_cursor_pos(struct hed_editor *editor, size_t pos, size_t visible_le
   
   scr->cursor_pos = pos;
 
-  // ensure cursor and 'visible_len_after' bytes after it are visible
-  if (scr->cursor_pos / 16 < scr->top_line) {
-    scr->top_line = scr->cursor_pos / 16;
-  } else if ((scr->cursor_pos+visible_len_after-1) / 16 >= scr->top_line + n_page_lines-1) {
-    scr->top_line = (scr->cursor_pos+visible_len_after-1) / 16 - (n_page_lines - 1);
-    if (last_line < n_page_lines)
+  // If the cursor or 'visible_len_after' bytes after it are not visible,
+  // center the screen vertically around the cursor
+  if (! (scr->cursor_pos / 16 >= scr->top_line
+         && (scr->cursor_pos+visible_len_after) / 16 >= scr->top_line
+         && scr->cursor_pos / 16 <= scr->top_line + n_page_lines
+         && (scr->cursor_pos+visible_len_after) / 16 <= scr->top_line + n_page_lines)) {
+    if (scr->cursor_pos / 16 < n_page_lines/2)
       scr->top_line = 0;
-    else if (scr->top_line + n_page_lines/2 > last_line)
-      scr->top_line = last_line - n_page_lines/2;
-    else
-      scr->top_line += n_page_lines/2;
+    else {
+      scr->top_line = scr->cursor_pos / 16 - n_page_lines/2;
+      if (scr->top_line + n_page_lines > last_line)
+        scr->top_line = last_line - n_page_lines;
+    }
   }
   scr->redraw_needed = true;
 }
