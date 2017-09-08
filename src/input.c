@@ -15,6 +15,9 @@
 
 static int read_key_seq(char *seq, size_t len)
 {
+  if (len == 1 && ((seq[0] >= 'A' && seq[0] <= 'Z') || (seq[0] >= 'a' && seq[0] <= 'z')))
+    return ALT_KEY(seq[0]);
+  
   if (len == 2 && seq[0] == '[' && IS_LETTER(seq[1])) {
     switch (seq[1]) {
     case 'A': return KEY_ARROW_UP;
@@ -114,7 +117,7 @@ int read_key(int fd, char *seq, size_t max_seq_len)
       return KEY_REDRAW;
   }
 
-#define NEXT()        do { if (read(fd, &seq[len], 1) != 1) goto err; len++; } while (0)
+#define NEXT()        do { if (read(fd, &seq[len], 1) != 1) return read_key_seq(seq, len); len++; } while (0)
 #define CUR           seq[len-1]
   
   size_t len = 0;
@@ -130,15 +133,10 @@ int read_key(int fd, char *seq, size_t max_seq_len)
         NEXT();
         continue;
       }
-      //if (! IS_DIGIT(CUR)) goto err;
+      //if (! IS_DIGIT(CUR)) return read_key_seq(seq, len);
     }
-    goto err;
-  } else {
-    //if (c >= 32) return -1;
-    return c;
+    return read_key_seq(seq, len);
   }
-  
- err:
-  seq[len] = '\0';
-  return KEY_BAD_SEQUENCE;
+  //if (c >= 32) return -1;
+  return c;
 }

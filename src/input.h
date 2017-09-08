@@ -4,6 +4,7 @@
 #define INPUT_H_FILE
 
 #define CTRL_KEY(k) ((k) & 0x1f)
+#define ALT_KEY(k)  (((k) & 0x1f) + KEY_ALT_FIRST)
 
 enum hex_editor_key {
   KEY_READ_ERROR = -1,
@@ -70,6 +71,8 @@ enum hex_editor_key {
   KEY_SHIFT_F10,
   KEY_SHIFT_F11,
   KEY_SHIFT_F12,
+
+  KEY_ALT_FIRST = 3000,
 };
 
 int read_key(int fd, char *seq, size_t max_seq_len);

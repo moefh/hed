@@ -5,7 +5,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <limits.h>
-#include <unistd.h>
+#include <errno.h>
 
 #include "editor.h"
 #include "screen.h"
@@ -720,7 +720,7 @@ static void process_input(struct hed_editor *editor)
     break;
 
   case CTRL_KEY('r'):
-    if (editor->modified) {
+    if (editor->data && editor->modified) {
       bool save_changes = true;
       if (prompt_read_yesno(editor, "Save changes?  (Answering no will DISCARD changes.)", &save_changes) < 0)
         break;
@@ -761,6 +761,23 @@ static void process_input(struct hed_editor *editor)
     }
     break;
 
+  case ALT_KEY('g'):
+    if (editor->data) {
+      char location_str[256];
+      location_str[0] = '\0';
+      if (prompt_read_string(editor, "Go to offset", location_str, sizeof(location_str)) < 0)
+        break;
+      char *end = NULL;
+      errno = 0;
+      unsigned long offset = strtoul(location_str, &end, 16);
+      if (errno != 0 || *end != '\0') {
+        show_msg("Bad offset: %s", location_str);
+        break;
+      }
+      hed_set_cursor_pos(editor, (size_t) offset, 16);
+    }
+    break;
+    
   case CTRL_KEY('a'):    cursor_home(editor); break;
   case CTRL_KEY('e'):    cursor_end(editor); break;
   case 8:                cursor_left(editor); break;
@@ -777,14 +794,14 @@ static void process_input(struct hed_editor *editor)
   case KEY_ARROW_RIGHT:  cursor_right(editor); break;
 
 #if 0
-  case KEY_CTRL_DEL:         show_msg("key: ctrl+del");  break;
-  case KEY_CTRL_INS:         show_msg("key: ctrl+ins");  break;
-  case KEY_CTRL_PAGE_UP:     show_msg("key: ctrl+pgup"); break;
-  case KEY_CTRL_PAGE_DOWN:   show_msg("key: ctrl+pgdn"); break;
-  case KEY_CTRL_ARROW_UP:    show_msg("key: ctrl+up"); break;
-  case KEY_CTRL_ARROW_DOWN:  show_msg("key: ctrl+down"); break;
-  case KEY_CTRL_ARROW_LEFT:  show_msg("key: ctrl+left"); break;
-  case KEY_CTRL_ARROW_RIGHT: show_msg("key: ctrl+right"); break;
+  case KEY_CTRL_DEL:          show_msg("key: ctrl+del");  break;
+  case KEY_CTRL_INS:          show_msg("key: ctrl+ins");  break;
+  case KEY_CTRL_PAGE_UP:      show_msg("key: ctrl+pgup"); break;
+  case KEY_CTRL_PAGE_DOWN:    show_msg("key: ctrl+pgdn"); break;
+  case KEY_CTRL_ARROW_UP:     show_msg("key: ctrl+up"); break;
+  case KEY_CTRL_ARROW_DOWN:   show_msg("key: ctrl+down"); break;
+  case KEY_CTRL_ARROW_LEFT:   show_msg("key: ctrl+left"); break;
+  case KEY_CTRL_ARROW_RIGHT:  show_msg("key: ctrl+right"); break;
 
   case KEY_SHIFT_HOME:        show_msg("key: shift+home"); break;
   case KEY_SHIFT_END:         show_msg("key: shift+end");  break;
@@ -797,8 +814,8 @@ static void process_input(struct hed_editor *editor)
   case KEY_SHIFT_ARROW_LEFT:  show_msg("key: shift+left"); break;
   case KEY_SHIFT_ARROW_RIGHT: show_msg("key: shift+right"); break;
     
-  case KEY_DEL:  show_msg("key: del");  break;
-  case KEY_INS:  show_msg("key: ins");  break;
+  case KEY_DEL: show_msg("key: del");  break;
+  case KEY_INS: show_msg("key: ins");  break;
 
   case KEY_F1:  show_msg("key: F1");  break;
   case KEY_F2:  show_msg("key: F2");  break;
@@ -866,12 +883,13 @@ static void process_input(struct hed_editor *editor)
     }
   }
 
+#if 0
+  if (! scr->msg_was_set)
+    show_msg("key: %d", k);
+#endif
+  
   if (! scr->msg_was_set && scr->cur_msg[0] != '\0')
     clear_msg();
-  
-#if 0
-  show_msg("key: %d", k);
-#endif
 }
 
 int hed_run_editor(struct hed_editor *editor, size_t start_cursor_pos)
