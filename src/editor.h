@@ -24,6 +24,7 @@ struct hed_editor {
   bool modified;
   bool quit;
 
+  bool read_only;
   char search_str[256];
   bool half_byte_edited;
   enum hed_edit_pane pane;

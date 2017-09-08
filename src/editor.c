@@ -30,6 +30,8 @@ void hed_init_editor(struct hed_editor *editor)
   editor->edit_mode = HED_MODE_DEFAULT;
   editor->pane = HED_PANE_HEX;
   editor->half_byte_edited = false;
+  editor->search_str[0] = '\0';
+  editor->read_only = false;
 }
 
 static void destroy_editor(struct hed_editor *editor)
@@ -153,6 +155,8 @@ static void show_header(struct hed_editor *editor)
   out(" %s", (editor->filename) ? editor->filename : "New Buffer");
   if (editor->modified)
     out(" (modified)");
+  if (editor->read_only)
+    out(" (view mode)");
   clear_eol();
   move_cursor(scr->w - strlen(HED_BANNER) - 1, 1);
   out("%s", HED_BANNER);
@@ -238,11 +242,17 @@ static void redraw_screen(struct hed_editor *editor)
       for (int j = 0; j < len; j++) {
         uint8_t b = editor->data[pos+j];
 
+        if (j == 8)
+          out(" ");
+        
         if (scr->cursor_pos == pos + j) {
           int cur_x = scr->cursor_pos % 16;
           int cur_y = scr->cursor_pos / 16 - scr->top_line;
-          move_cursor(11 + 3*cur_x, 3 + cur_y);
-          set_color(FG_BLACK, (editor->half_byte_edited) ? BG_YELLOW : (editor->pane == HED_PANE_HEX) ? BG_GREEN : BG_GRAY);
+          move_cursor(11 + 3*cur_x + (j >= 8), 3 + cur_y);
+          set_color(FG_BLACK,
+                    ((editor->half_byte_edited) ? BG_YELLOW
+                     : (editor->pane == HED_PANE_HEX && ! editor->read_only) ? BG_GREEN
+                     : BG_GRAY));
           set_bold(false);
           out(" ");
         }
@@ -256,6 +266,8 @@ static void redraw_screen(struct hed_editor *editor)
       }
       for (int j = len; j < 16; j++) {
         out("   ");
+        if (j == 8)
+          out(" ");
         buf[j] = ' ';
       }
       buf[16] = '\0';
@@ -266,7 +278,7 @@ static void redraw_screen(struct hed_editor *editor)
       if (scr->cursor_pos >= pos && scr->cursor_pos <= pos + 16) {
         int n_before = scr->cursor_pos - pos;
         out("%.*s", n_before, buf);
-        set_color(FG_BLACK, (editor->pane == HED_PANE_TEXT) ? BG_GREEN : BG_GRAY);
+        set_color(FG_BLACK, (editor->pane == HED_PANE_TEXT && ! editor->read_only) ? BG_GREEN : BG_GRAY);
         set_bold(false);
         out("%c", buf[n_before]);
         reset_color(); 
@@ -756,40 +768,42 @@ static void process_input(struct hed_editor *editor)
 #endif
   }
 
-  bool reset_editing_byte = true;
-  if (editor->data && scr->cursor_pos < editor->data_len) {
-    if (editor->pane == HED_PANE_TEXT) {
-      if (k >= 32 && k < 0x7f) {
-        editor->data[scr->cursor_pos] = k;
-        editor->modified = true;
-        cursor_right(editor);
-        scr->redraw_needed = true;
-      }
-    } else {
-      int c = ((k >= '0' && k <= '9') ? k - '0' :
-               (k >= 'a' && k <= 'f') ? k - 'a' + 10 :
-               (k >= 'A' && k <= 'F') ? k - 'A' + 10 : -1);
-      if (c >= 0) {
-        reset_editing_byte = false;
-        if (! editor->half_byte_edited) {
-          editor->half_byte_edited = true;
-          editor->data[scr->cursor_pos] &= 0x0f;
-          editor->data[scr->cursor_pos] |= c << 4;
-        } else {
-          editor->half_byte_edited = false;
-          editor->data[scr->cursor_pos] &= 0xf0;
-          editor->data[scr->cursor_pos] |= c;
+  if (! editor->read_only) {
+    bool reset_editing_byte = true;
+    if (editor->data && scr->cursor_pos < editor->data_len) {
+      if (editor->pane == HED_PANE_TEXT) {
+        if (k >= 32 && k < 0x7f) {
+          editor->data[scr->cursor_pos] = k;
+          editor->modified = true;
           cursor_right(editor);
+          scr->redraw_needed = true;
         }
-        editor->modified = true;
-        scr->redraw_needed = true;
+      } else {
+        int c = ((k >= '0' && k <= '9') ? k - '0' :
+                 (k >= 'a' && k <= 'f') ? k - 'a' + 10 :
+                 (k >= 'A' && k <= 'F') ? k - 'A' + 10 : -1);
+        if (c >= 0) {
+          reset_editing_byte = false;
+          if (! editor->half_byte_edited) {
+            editor->half_byte_edited = true;
+            editor->data[scr->cursor_pos] &= 0x0f;
+            editor->data[scr->cursor_pos] |= c << 4;
+          } else {
+            editor->half_byte_edited = false;
+            editor->data[scr->cursor_pos] &= 0xf0;
+            editor->data[scr->cursor_pos] |= c;
+            cursor_right(editor);
+          }
+          editor->modified = true;
+          scr->redraw_needed = true;
+        }
       }
     }
-  }
 
-  if (reset_editing_byte && editor->half_byte_edited) {
-    editor->half_byte_edited = false;
-    scr->redraw_needed = true;
+    if (reset_editing_byte && editor->half_byte_edited) {
+      editor->half_byte_edited = false;
+      scr->redraw_needed = true;
+    }
   }
 
   if (! scr->msg_was_set && scr->cur_msg[0] != '\0')
