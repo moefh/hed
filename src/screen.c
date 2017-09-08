@@ -37,16 +37,36 @@ int hed_init_screen(struct hed_screen *scr)
   term_get_window_size(&screen->w, &screen->h);
   screen->window_changed = true;
   screen->redraw_needed = true;
-  screen->editing_byte = false;
   screen->utf8_box_draw = true;
   screen->vt100_box_draw = true;
+  screen->msg_was_set = false;
+  screen->cur_msg[0] = '\0';
   screen->top_line = 0;
   screen->cursor_pos = 0;
-  screen->pane = PANE_HEX;
-  screen->buf_len = 0;
+  screen->out_buf_len = 0;
   
   signal(SIGWINCH, handle_sigwinch);
   return 0;
+}
+
+int hed_scr_show_msg(const char *fmt, ...)
+{
+  va_list ap;
+  va_start(ap, fmt);
+  vsnprintf(screen->cur_msg, sizeof(screen->cur_msg), fmt, ap);
+  va_end(ap);
+  
+  screen->redraw_needed = true;
+  screen->msg_was_set = true;
+  return -1;
+}
+
+int hed_scr_clear_msg(void)
+{
+  screen->cur_msg[0] = '\0';
+  screen->redraw_needed = true;
+  screen->msg_was_set = true;
+  return -1;
 }
 
 void hed_close_screen(void)
@@ -57,9 +77,18 @@ void hed_close_screen(void)
 
 void hed_scr_flush(void)
 {
-  if (screen->buf_len > 0) {
-    write(screen->term_fd, screen->buf, screen->buf_len);
-    screen->buf_len = 0;
+  if (screen->out_buf_len > 0) {
+    size_t pos = 0;
+    while (pos < screen->out_buf_len) {
+      ssize_t n = write(screen->term_fd, screen->out_buf + pos, screen->out_buf_len - pos);
+      if (n < 0) {
+        if (errno != EINTR)
+          break;
+      } else if (n == 0)
+        break;
+      pos += n;
+    }
+    screen->out_buf_len = 0;
   }
 }
 
@@ -73,10 +102,10 @@ void hed_scr_out(const char *fmt, ...)
   va_end(ap);
 
   size_t len = strlen(buf);
-  if (screen->buf_len + len > sizeof(screen->buf))
+  if (screen->out_buf_len + len > sizeof(screen->out_buf))
     hed_scr_flush();
-  memcpy(screen->buf + screen->buf_len, buf, len);
-  screen->buf_len += len;
+  memcpy(screen->out_buf + screen->out_buf_len, buf, len);
+  screen->out_buf_len += len;
 }
 
 /*

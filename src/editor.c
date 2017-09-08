@@ -12,43 +12,24 @@
 #include "term.h"
 #include "input.h"
 
-#define HED_BANNER  "hed v0.1"
-#define HEADER_LINES  2
-#define FOOTER_LINES  2
-#define BORDER_LINES  (HEADER_LINES+FOOTER_LINES)
+#define HED_BANNER       "hed v0.1"
+#define HEADER_LINES     2
+#define FOOTER_LINES     2
+#define BORDER_LINES     (HEADER_LINES+FOOTER_LINES)
+#define KEY_HELP_SPACING 16
 
-#define show_msg  hed_show_msg
-#define clear_msg hed_clear_msg
+#define show_msg  hed_scr_show_msg
+#define clear_msg hed_scr_clear_msg
 
 void hed_init_editor(struct hed_editor *editor)
 {
   editor->filename = NULL;
   editor->data = NULL;
   editor->data_len = 0;
-  editor->cur_msg[0] = '\0';
-  editor->msg_was_set = false;
   editor->modified = false;
   editor->edit_mode = HED_MODE_DEFAULT;
-}
-
-int hed_show_msg(struct hed_editor *editor, const char *fmt, ...)
-{
-  va_list ap;
-  va_start(ap, fmt);
-  vsnprintf(editor->cur_msg, sizeof(editor->cur_msg), fmt, ap);
-  va_end(ap);
-  
-  editor->screen.redraw_needed = true;
-  editor->msg_was_set = true;
-  return -1;
-}
-
-int hed_clear_msg(struct hed_editor *editor)
-{
-  editor->cur_msg[0] = '\0';
-  editor->screen.redraw_needed = true;
-  editor->msg_was_set = true;
-  return -1;
+  editor->pane = HED_PANE_HEX;
+  editor->half_byte_edited = false;
 }
 
 static void destroy_editor(struct hed_editor *editor)
@@ -68,22 +49,22 @@ static int write_file(struct hed_editor *editor, const char *filename)
   if (! editor->filename || strcmp(filename, editor->filename) != 0) {
     new_filename = malloc(strlen(filename) + 1);
     if (! new_filename)
-      return show_msg(editor, "ERROR: out of memory"); 
+      return show_msg("ERROR: out of memory");
     strcpy(new_filename, filename);
   }
   
   FILE *f = fopen(filename, "w");
   if (! f) {
     free(new_filename);
-    return show_msg(editor, "ERROR: can't open file '%s'", filename);
+    return show_msg("ERROR: can't open file '%s'", filename);
   }
   if (fwrite(editor->data, 1, editor->data_len, f) != editor->data_len) {
     free(new_filename);
     fclose(f);
-    return show_msg(editor, "ERROR: can't write file '%s'", filename);
+    return show_msg("ERROR: can't write file '%s'", filename);
   }
   fclose(f);
-  show_msg(editor, "File saved: '%s'", filename);
+  show_msg("File saved: '%s'", filename);
   editor->modified = false;
 
   if (new_filename)
@@ -109,7 +90,7 @@ int hed_read_file(struct hed_editor *editor, const char *filename)
 {
   FILE *f = fopen(filename, "r");
   if (! f)
-    return show_msg(editor, "ERROR: can't open file '%s'", filename);
+    return show_msg("ERROR: can't open file '%s'", filename);
 
   char *new_filename = malloc(strlen(filename) + 1);
   if (! new_filename)
@@ -120,21 +101,21 @@ int hed_read_file(struct hed_editor *editor, const char *filename)
   if (fseek(f, 0, SEEK_END) != -1) {
     long size = ftell(f);
     if (size < 0 || size > INT_MAX) {
-      show_msg(editor, "ERROR: file is too large");
+      show_msg("ERROR: file is too large");
       goto err;
     }
     if (fseek(f, 0, SEEK_SET) == -1) {
-      show_msg(editor, "ERROR: can't seek to start of file");
+      show_msg("ERROR: can't seek to start of file");
       goto err;
     }
     uint8_t *data = malloc(size);
     if (! data) {
-      show_msg(editor, "ERROR: not enough memory for %ld bytes", size);
+      show_msg("ERROR: not enough memory for %ld bytes", size);
       goto err;
     }
     
     if (fread(data, 1, size, f) != (size_t) size) {
-      show_msg(editor, "ERROR: error reading file");
+      show_msg("ERROR: error reading file");
       free(data);
       goto err;
     }
@@ -151,7 +132,7 @@ int hed_read_file(struct hed_editor *editor, const char *filename)
     return 0;
   }
 
-  show_msg(editor, "ERROR: reading from pipes not implemented");
+  show_msg("ERROR: reading from pipes not implemented");
 
  err:
   if (new_filename)
@@ -169,7 +150,7 @@ static void show_header(struct hed_editor *editor)
   reset_color();
   set_color(FG_BLACK, BG_GRAY);
   move_cursor(1, 1);
-  out(" %s", (editor->filename) ? editor->filename : "NO FILE");
+  out(" %s", (editor->filename) ? editor->filename : "New Buffer");
   if (editor->modified)
     out(" (modified)");
   clear_eol();
@@ -187,7 +168,7 @@ static void show_key_help(int x, int y, const char *key, const char *help)
   out(" %s", help);
 
   size_t txt_len = strlen(key) + strlen(help) + 1;
-  for (size_t i = txt_len; i < 17; i++)
+  for (size_t i = txt_len; i < KEY_HELP_SPACING-1; i++)
     out(" ");
 }
 
@@ -197,30 +178,31 @@ static void show_footer(struct hed_editor *editor)
 
   reset_color();
   move_cursor(1, scr->h - 1);
-  if (editor->cur_msg[0] != '\0') {
+  if (scr->cur_msg[0] != '\0') {
     set_color(FG_BLACK, BG_GRAY);
-    out(" %s", editor->cur_msg);
+    out(" %s", scr->cur_msg);
     clear_eol();
   }
   clear_eol();
 
   switch (editor->edit_mode) {
   case HED_MODE_READ_STRING:
-    show_key_help(1 + 0*17, scr->h, "^C", "Cancel");
-    show_key_help(1 + 1*17, scr->h, "RET", "Accept");
+    show_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^C", "Cancel");
+    //show_key_help(1 + 1*KEY_HELP_SPACING, scr->h, "RET", "Accept");
     break;
 
   case HED_MODE_READ_YESNO:
-    show_key_help(1 + 0*17, scr->h, "^C", "Cancel");
-    show_key_help(1 + 1*17, scr->h, " Y", "Yes");
-    show_key_help(1 + 2*17, scr->h, " N", "No");
+    show_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^C", "Cancel");
+    show_key_help(1 + 1*KEY_HELP_SPACING, scr->h, " Y", "Yes");
+    show_key_help(1 + 2*KEY_HELP_SPACING, scr->h, " N", "No");
     break;
 
   case HED_MODE_DEFAULT:
-    show_key_help(1 + 0*17, scr->h, "^X", "Exit Editor");
-    show_key_help(1 + 1*17, scr->h, "TAB", "Edit Mode");
-    show_key_help(1 + 2*17, scr->h, "^O", "Write File");
-    show_key_help(1 + 3*17, scr->h, "^R", "Read File");
+    show_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^X", "Exit");
+    show_key_help(1 + 1*KEY_HELP_SPACING, scr->h, "^O", "Write File");
+    show_key_help(1 + 2*KEY_HELP_SPACING, scr->h, "^R", "Read File");
+    show_key_help(1 + 3*KEY_HELP_SPACING, scr->h, "TAB", "Switch Mode");
+    show_key_help(1 + 4*KEY_HELP_SPACING, scr->h, "^W", "Where Is");
   }
   clear_eol();
 }
@@ -252,7 +234,7 @@ static void redraw_screen(struct hed_editor *editor)
       box_draw("| ");
       int len = (editor->data_len - pos < 16) ? editor->data_len - pos : 16;
       char buf[17];
-      set_bold(scr->pane == PANE_HEX);
+      set_bold(editor->pane == HED_PANE_HEX);
       for (int j = 0; j < len; j++) {
         uint8_t b = editor->data[pos+j];
 
@@ -260,14 +242,14 @@ static void redraw_screen(struct hed_editor *editor)
           int cur_x = scr->cursor_pos % 16;
           int cur_y = scr->cursor_pos / 16 - scr->top_line;
           move_cursor(11 + 3*cur_x, 3 + cur_y);
-          set_color(FG_BLACK, (scr->pane == PANE_HEX && scr->editing_byte) ? BG_YELLOW : BG_GRAY);
+          set_color(FG_BLACK, (editor->half_byte_edited) ? BG_YELLOW : (editor->pane == HED_PANE_HEX) ? BG_GREEN : BG_GRAY);
           set_bold(false);
           out(" ");
         }
         out("%02x ", b);
         if (scr->cursor_pos == pos + j) {
           reset_color();
-          set_bold(scr->pane == PANE_HEX);
+          set_bold(editor->pane == HED_PANE_HEX);
         }
         
         buf[j] = (b < 32 || b >= 0x7f) ? '.' : b;
@@ -280,15 +262,15 @@ static void redraw_screen(struct hed_editor *editor)
       set_bold(false);
       box_draw("| ");
 
-      set_bold(scr->pane == PANE_TEXT);
+      set_bold(editor->pane == HED_PANE_TEXT);
       if (scr->cursor_pos >= pos && scr->cursor_pos <= pos + 16) {
         int n_before = scr->cursor_pos - pos;
         out("%.*s", n_before, buf);
-        set_color(FG_BLACK, BG_GRAY);
+        set_color(FG_BLACK, (editor->pane == HED_PANE_TEXT) ? BG_GREEN : BG_GRAY);
         set_bold(false);
         out("%c", buf[n_before]);
         reset_color(); 
-        set_bold(scr->pane == PANE_TEXT);
+        set_bold(editor->pane == HED_PANE_TEXT);
         if (n_before < 16)
           out("%.*s", 16-n_before-1, buf + n_before + 1);
         out("\r\n");
@@ -368,15 +350,15 @@ static void cursor_page_down(struct hed_editor *editor)
   struct hed_screen *scr = &editor->screen;
   int cursor_delta = scr->cursor_pos - 16*scr->top_line;
   size_t n_page_lines = scr->h - BORDER_LINES;
-  size_t bottom_line = editor->data_len / 16 + (editor->data_len % 16 != 0);
-  if (bottom_line < n_page_lines || scr->top_line == bottom_line - n_page_lines) {
-    if (bottom_line < n_page_lines)
+  size_t last_line = editor->data_len / 16 + (editor->data_len % 16 != 0);
+  if (last_line < n_page_lines || scr->top_line == last_line - n_page_lines) {
+    if (last_line < n_page_lines)
       scr->top_line = 0;
     cursor_delta = editor->data_len - 16*scr->top_line - 1;
-  } else if (bottom_line > n_page_lines && scr->top_line + 2*n_page_lines < bottom_line)
+  } else if (last_line > n_page_lines && scr->top_line + 2*n_page_lines < last_line)
     scr->top_line += n_page_lines;
   else
-    scr->top_line = bottom_line - n_page_lines;
+    scr->top_line = last_line - n_page_lines;
   scr->cursor_pos = 16*scr->top_line + cursor_delta;
   scr->redraw_needed = true;
 }
@@ -409,12 +391,12 @@ static void cursor_end_of_file(struct hed_editor *editor)
 {
   struct hed_screen *scr = &editor->screen;
   size_t n_page_lines = scr->h - BORDER_LINES;
-  size_t bottom_line = editor->data_len / 16 + (editor->data_len % 16 != 0);
+  size_t last_line = editor->data_len / 16 + (editor->data_len % 16 != 0);
   scr->cursor_pos = editor->data_len - 1;
-  if (bottom_line < n_page_lines)
+  if (last_line < n_page_lines)
     scr->top_line = 0;
   else
-    scr->top_line = bottom_line - n_page_lines;
+    scr->top_line = last_line - n_page_lines;
   scr->redraw_needed = true;
 }
 
@@ -422,7 +404,7 @@ static int prompt_read_yesno(struct hed_editor *editor, const char *prompt, bool
 {
   struct hed_screen *scr = &editor->screen;
 
-  show_msg(editor, "%s", prompt);
+  show_msg("%s", prompt);
   size_t prompt_len = strlen(prompt);
   char key_err[64];
 
@@ -454,7 +436,7 @@ static int prompt_read_yesno(struct hed_editor *editor, const char *prompt, bool
         *response = false;
       editor->edit_mode = HED_MODE_DEFAULT;
       show_cursor(false);
-      clear_msg(editor);
+      clear_msg();
       return (k == CTRL_KEY('c')) ? -1 : 0;
     }
   }
@@ -465,7 +447,7 @@ static int prompt_read_string(struct hed_editor *editor, const char *prompt, cha
 {
   struct hed_screen *scr = &editor->screen;
 
-  show_msg(editor, "%s: ", prompt);
+  show_msg("%s: ", prompt);
   size_t prompt_len = strlen(prompt);
   size_t str_len = strlen(str);
   size_t cursor_pos = str_len;
@@ -501,7 +483,7 @@ static int prompt_read_string(struct hed_editor *editor, const char *prompt, cha
     case '\r':
       editor->edit_mode = HED_MODE_DEFAULT;
       show_cursor(false);
-      clear_msg(editor);
+      clear_msg();
       return (k == '\r') ? 0 : -1;
       
     case KEY_HOME:        cursor_pos = 0; break;
@@ -535,7 +517,7 @@ static int prompt_read_string(struct hed_editor *editor, const char *prompt, cha
   }
   
   editor->edit_mode = HED_MODE_DEFAULT;
-  clear_msg(editor);
+  clear_msg();
   return 0;
 }
 
@@ -566,6 +548,46 @@ static int prompt_read_file(struct hed_editor *editor)
   return hed_read_file(editor, filename);
 }
 
+static int perform_search(struct hed_editor *editor)
+{
+  struct hed_screen *scr = &editor->screen;
+
+  // TODO: convert from hex bytes if we're in HEX pane
+  size_t search_len = strlen(editor->search_str);
+  uint8_t *search_bytes = (uint8_t *) editor->search_str;
+
+  // TODO: Boyer-Moore search?
+  bool found = false;
+  for (size_t pos = scr->cursor_pos+1; pos + search_len < editor->data_len; pos++) {
+    if (memcmp(editor->data + pos, search_bytes, search_len) == 0) {
+      found = true;
+      scr->cursor_pos = pos;
+      break;
+    }
+  }
+  if (! found) {
+    show_msg("Text not found");
+    return -1;
+  }
+
+  // ensure the position is visible
+  size_t n_page_lines = scr->h - BORDER_LINES;
+  size_t last_line = editor->data_len / 16 + (editor->data_len % 16 != 0);
+  if (scr->cursor_pos / 16 < scr->top_line) {
+    scr->top_line = scr->cursor_pos / 16;
+  } else if ((scr->cursor_pos+search_len-1) / 16 >= scr->top_line + n_page_lines-1) {
+    scr->top_line = (scr->cursor_pos+search_len-1) / 16 - (n_page_lines - 1);
+    if (last_line < n_page_lines)
+      scr->top_line = 0;
+    else if (scr->top_line + n_page_lines/2 > last_line)
+      scr->top_line = last_line - n_page_lines/2;
+    else
+      scr->top_line += n_page_lines/2;
+  }
+  scr->redraw_needed = true;
+  return 0;
+}
+
 static void process_input(struct hed_editor *editor)
 {
   struct hed_screen *scr = &editor->screen;
@@ -573,7 +595,7 @@ static void process_input(struct hed_editor *editor)
   char key_err[64];
   int k = read_key(scr->term_fd, key_err, sizeof(key_err));
 
-  editor->msg_was_set = false;
+  scr->msg_was_set = false;
   switch (k) {
   case KEY_REDRAW:
     reset_color();
@@ -582,13 +604,13 @@ static void process_input(struct hed_editor *editor)
     break;
 
   case KEY_BAD_SEQUENCE:
-    show_msg(editor, "Unknown key: <ESC>%s", key_err);
+    show_msg("Unknown key: <ESC>%s", key_err);
     break;
     
   case CTRL_KEY('x'):
     if (editor->modified) {
       bool save_changes = true;
-      if (prompt_read_yesno(editor, "Save changes?", &save_changes) < 0)
+      if (prompt_read_yesno(editor, "Save changes?  (Answering no will DISCARD changes.)", &save_changes) < 0)
         break;
       if (save_changes) {
         if (editor->filename) {
@@ -606,10 +628,10 @@ static void process_input(struct hed_editor *editor)
     break;
 
   case '\t':
-    if (scr->pane == PANE_HEX)
-      scr->pane = PANE_TEXT;
+    if (editor->pane == HED_PANE_HEX)
+      editor->pane = HED_PANE_TEXT;
     else
-      scr->pane = PANE_HEX;
+      editor->pane = HED_PANE_HEX;
     scr->redraw_needed = true;
     break;
     
@@ -620,7 +642,7 @@ static void process_input(struct hed_editor *editor)
 
   case CTRL_KEY('o'):
     if (! editor->data)
-      show_msg(editor, "No data to write!");
+      show_msg("No data to write!");
     else
       prompt_save_file(editor);
     break;
@@ -628,7 +650,7 @@ static void process_input(struct hed_editor *editor)
   case CTRL_KEY('r'):
     if (editor->modified) {
       bool save_changes = true;
-      if (prompt_read_yesno(editor, "Save changes?", &save_changes) < 0)
+      if (prompt_read_yesno(editor, "Save changes?  (Answering no will DISCARD changes.)", &save_changes) < 0)
         break;
       if (save_changes) {
         if (editor->filename) {
@@ -641,6 +663,30 @@ static void process_input(struct hed_editor *editor)
       }
     }
     prompt_read_file(editor);
+    break;
+
+  case CTRL_KEY('w'):
+    if (editor->data) {
+      const char *prompt = "Search Text";
+      char prompt_str[40];
+      if (editor->search_str[0] != '\0') {
+        size_t prompt_len = strlen(prompt);
+        size_t len = strlen(editor->search_str);
+        if (len + prompt_len + 10 > sizeof(prompt_str)) {
+          len = sizeof(prompt_str) - prompt_len - 10;
+          snprintf(prompt_str, sizeof(prompt_str), "%s [%.*s...]", prompt, (int) len, editor->search_str);
+        } else
+          snprintf(prompt_str, sizeof(prompt_str), "%s [%.*s]", prompt, (int) len, editor->search_str);
+        prompt = prompt_str;
+      }
+      char search_str[sizeof(editor->search_str)];
+      search_str[0] = '\0';
+      if (prompt_read_string(editor, prompt, search_str, sizeof(search_str)) < 0)
+        break;
+      if (search_str[0] != '\0')
+        strcpy(editor->search_str, search_str);
+      perform_search(editor);
+    }
     break;
 
   case CTRL_KEY('a'):    cursor_home(editor); break;
@@ -659,60 +705,60 @@ static void process_input(struct hed_editor *editor)
   case KEY_ARROW_RIGHT:  cursor_right(editor); break;
 
 #if 0
-  case KEY_CTRL_DEL:         show_msg(editor, "key: ctrl+del");  break;
-  case KEY_CTRL_INS:         show_msg(editor, "key: ctrl+ins");  break;
-  case KEY_CTRL_PAGE_UP:     show_msg(editor, "key: ctrl+pgup"); break;
-  case KEY_CTRL_PAGE_DOWN:   show_msg(editor, "key: ctrl+pgdn"); break;
-  case KEY_CTRL_ARROW_UP:    show_msg(editor, "key: ctrl+up"); break;
-  case KEY_CTRL_ARROW_DOWN:  show_msg(editor, "key: ctrl+down"); break;
-  case KEY_CTRL_ARROW_LEFT:  show_msg(editor, "key: ctrl+left"); break;
-  case KEY_CTRL_ARROW_RIGHT: show_msg(editor, "key: ctrl+right"); break;
+  case KEY_CTRL_DEL:         show_msg("key: ctrl+del");  break;
+  case KEY_CTRL_INS:         show_msg("key: ctrl+ins");  break;
+  case KEY_CTRL_PAGE_UP:     show_msg("key: ctrl+pgup"); break;
+  case KEY_CTRL_PAGE_DOWN:   show_msg("key: ctrl+pgdn"); break;
+  case KEY_CTRL_ARROW_UP:    show_msg("key: ctrl+up"); break;
+  case KEY_CTRL_ARROW_DOWN:  show_msg("key: ctrl+down"); break;
+  case KEY_CTRL_ARROW_LEFT:  show_msg("key: ctrl+left"); break;
+  case KEY_CTRL_ARROW_RIGHT: show_msg("key: ctrl+right"); break;
 
-  case KEY_SHIFT_HOME:        show_msg(editor, "key: shift+home"); break;
-  case KEY_SHIFT_END:         show_msg(editor, "key: shift+end");  break;
-  case KEY_SHIFT_DEL:         show_msg(editor, "key: shift+del");  break;
-  case KEY_SHIFT_INS:         show_msg(editor, "key: shift+ins");  break;
-  case KEY_SHIFT_PAGE_UP:     show_msg(editor, "key: shift+pgup"); break;
-  case KEY_SHIFT_PAGE_DOWN:   show_msg(editor, "key: shift+pgdn"); break;
-  case KEY_SHIFT_ARROW_UP:    show_msg(editor, "key: shift+up"); break;
-  case KEY_SHIFT_ARROW_DOWN:  show_msg(editor, "key: shift+down"); break;
-  case KEY_SHIFT_ARROW_LEFT:  show_msg(editor, "key: shift+left"); break;
-  case KEY_SHIFT_ARROW_RIGHT: show_msg(editor, "key: shift+right"); break;
+  case KEY_SHIFT_HOME:        show_msg("key: shift+home"); break;
+  case KEY_SHIFT_END:         show_msg("key: shift+end");  break;
+  case KEY_SHIFT_DEL:         show_msg("key: shift+del");  break;
+  case KEY_SHIFT_INS:         show_msg("key: shift+ins");  break;
+  case KEY_SHIFT_PAGE_UP:     show_msg("key: shift+pgup"); break;
+  case KEY_SHIFT_PAGE_DOWN:   show_msg("key: shift+pgdn"); break;
+  case KEY_SHIFT_ARROW_UP:    show_msg("key: shift+up"); break;
+  case KEY_SHIFT_ARROW_DOWN:  show_msg("key: shift+down"); break;
+  case KEY_SHIFT_ARROW_LEFT:  show_msg("key: shift+left"); break;
+  case KEY_SHIFT_ARROW_RIGHT: show_msg("key: shift+right"); break;
     
-  case KEY_DEL:  show_msg(editor, "key: del");  break;
-  case KEY_INS:  show_msg(editor, "key: ins");  break;
+  case KEY_DEL:  show_msg("key: del");  break;
+  case KEY_INS:  show_msg("key: ins");  break;
 
-  case KEY_F1:  show_msg(editor, "key: F1");  break;
-  case KEY_F2:  show_msg(editor, "key: F2");  break;
-  case KEY_F3:  show_msg(editor, "key: F3");  break;
-  case KEY_F4:  show_msg(editor, "key: F4");  break;
-  case KEY_F5:  show_msg(editor, "key: F5");  break;
-  case KEY_F6:  show_msg(editor, "key: F6");  break;
-  case KEY_F7:  show_msg(editor, "key: F7");  break;
-  case KEY_F8:  show_msg(editor, "key: F8");  break;
-  case KEY_F9:  show_msg(editor, "key: F9");  break;
-  case KEY_F10: show_msg(editor, "key: F10"); break;
-  case KEY_F11: show_msg(editor, "key: F11"); break;
-  case KEY_F12: show_msg(editor, "key: F12"); break;
+  case KEY_F1:  show_msg("key: F1");  break;
+  case KEY_F2:  show_msg("key: F2");  break;
+  case KEY_F3:  show_msg("key: F3");  break;
+  case KEY_F4:  show_msg("key: F4");  break;
+  case KEY_F5:  show_msg("key: F5");  break;
+  case KEY_F6:  show_msg("key: F6");  break;
+  case KEY_F7:  show_msg("key: F7");  break;
+  case KEY_F8:  show_msg("key: F8");  break;
+  case KEY_F9:  show_msg("key: F9");  break;
+  case KEY_F10: show_msg("key: F10"); break;
+  case KEY_F11: show_msg("key: F11"); break;
+  case KEY_F12: show_msg("key: F12"); break;
 
-  case KEY_SHIFT_F1:  show_msg(editor, "key: shift+F1");  break;
-  case KEY_SHIFT_F2:  show_msg(editor, "key: shift+F2");  break;
-  case KEY_SHIFT_F3:  show_msg(editor, "key: shift+F3");  break;
-  case KEY_SHIFT_F4:  show_msg(editor, "key: shift+F4");  break;
-  case KEY_SHIFT_F5:  show_msg(editor, "key: shift+F5");  break;
-  case KEY_SHIFT_F6:  show_msg(editor, "key: shift+F6");  break;
-  case KEY_SHIFT_F7:  show_msg(editor, "key: shift+F7");  break;
-  case KEY_SHIFT_F8:  show_msg(editor, "key: shift+F8");  break;
-  case KEY_SHIFT_F9:  show_msg(editor, "key: shift+F9");  break;
-  case KEY_SHIFT_F10: show_msg(editor, "key: shift+F10"); break;
-  case KEY_SHIFT_F11: show_msg(editor, "key: shift+F11"); break;
-  case KEY_SHIFT_F12: show_msg(editor, "key: shift+F12"); break;
+  case KEY_SHIFT_F1:  show_msg("key: shift+F1");  break;
+  case KEY_SHIFT_F2:  show_msg("key: shift+F2");  break;
+  case KEY_SHIFT_F3:  show_msg("key: shift+F3");  break;
+  case KEY_SHIFT_F4:  show_msg("key: shift+F4");  break;
+  case KEY_SHIFT_F5:  show_msg("key: shift+F5");  break;
+  case KEY_SHIFT_F6:  show_msg("key: shift+F6");  break;
+  case KEY_SHIFT_F7:  show_msg("key: shift+F7");  break;
+  case KEY_SHIFT_F8:  show_msg("key: shift+F8");  break;
+  case KEY_SHIFT_F9:  show_msg("key: shift+F9");  break;
+  case KEY_SHIFT_F10: show_msg("key: shift+F10"); break;
+  case KEY_SHIFT_F11: show_msg("key: shift+F11"); break;
+  case KEY_SHIFT_F12: show_msg("key: shift+F12"); break;
 #endif
   }
 
   bool reset_editing_byte = true;
   if (editor->data && scr->cursor_pos < editor->data_len) {
-    if (scr->pane == PANE_TEXT) {
+    if (editor->pane == HED_PANE_TEXT) {
       if (k >= 32 && k < 0x7f) {
         editor->data[scr->cursor_pos] = k;
         editor->modified = true;
@@ -725,12 +771,12 @@ static void process_input(struct hed_editor *editor)
                (k >= 'A' && k <= 'F') ? k - 'A' + 10 : -1);
       if (c >= 0) {
         reset_editing_byte = false;
-        if (! scr->editing_byte) {
-          scr->editing_byte = true;
+        if (! editor->half_byte_edited) {
+          editor->half_byte_edited = true;
           editor->data[scr->cursor_pos] &= 0x0f;
           editor->data[scr->cursor_pos] |= c << 4;
         } else {
-          scr->editing_byte = false;
+          editor->half_byte_edited = false;
           editor->data[scr->cursor_pos] &= 0xf0;
           editor->data[scr->cursor_pos] |= c;
           cursor_right(editor);
@@ -741,18 +787,16 @@ static void process_input(struct hed_editor *editor)
     }
   }
 
-  if (reset_editing_byte && scr->editing_byte) {
-    scr->editing_byte = false;
+  if (reset_editing_byte && editor->half_byte_edited) {
+    editor->half_byte_edited = false;
     scr->redraw_needed = true;
   }
 
-  if (! editor->msg_was_set && editor->cur_msg[0] != '\0') {
-    editor->cur_msg[0] = '\0';
-    scr->redraw_needed = true;
-  }
+  if (! scr->msg_was_set && scr->cur_msg[0] != '\0')
+    clear_msg();
   
 #if 0
-  show_msg(editor, "key: %d", k);
+  show_msg("key: %d", k);
 #endif
 }
 

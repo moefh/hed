@@ -27,30 +27,29 @@ enum vt100_color {
   BG_GRAY    = 47,
 };
 
-enum hed_edit_pane {
-  PANE_HEX,
-  PANE_TEXT,
-};
-
 struct hed_screen {
   int term_fd;
   int w;
   int h;
   size_t cursor_pos;
   size_t top_line;
-  enum hed_edit_pane pane;
+
   bool window_changed;
   bool redraw_needed;
-  bool editing_byte;
   bool utf8_box_draw;
   bool vt100_box_draw;
 
-  char buf[1024];
-  size_t buf_len;
+  bool msg_was_set;
+  char cur_msg[256];
+
+  char out_buf[1024];
+  size_t out_buf_len;
 };
 
 int hed_init_screen(struct hed_screen *scr);
 void hed_close_screen(void);
+int hed_scr_show_msg(const char *fmt, ...) HED_PRINTF_FORMAT(1, 2);
+int hed_scr_clear_msg(void);
 
 void hed_scr_flush(void);
 void hed_scr_out(const char *fmt, ...) HED_PRINTF_FORMAT(1, 2);
