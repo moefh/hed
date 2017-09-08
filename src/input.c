@@ -114,7 +114,7 @@ int read_key(int fd, char *seq, size_t max_seq_len)
       return KEY_REDRAW;
   }
 
-#define NEXT()        do { if (read(fd, &seq[len++], 1) != 1) goto err; } while (0)
+#define NEXT()        do { if (read(fd, &seq[len], 1) != 1) goto err; len++; } while (0)
 #define CUR           seq[len-1]
   
   size_t len = 0;
