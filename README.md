@@ -2,6 +2,8 @@
 
 A tiny [nano](https://www.nano-editor.org/)-like hex editor
 
+![Screenshot](/doc/hed.png?raw=true "Screenshot")
+
 ## Features
 
 - Very small, simple and fast
