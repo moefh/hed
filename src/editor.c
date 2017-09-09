@@ -13,6 +13,7 @@
 #include "input.h"
 #include "file.h"
 #include "file_sel.h"
+#include "help.h"
 
 void hed_init_editor(struct hed_editor *editor)
 {
@@ -137,11 +138,10 @@ static void draw_footer(struct hed_editor *editor)
       hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^X", "Exit");
     else
       hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^X", "Close");
-    hed_draw_key_help(  1 + 1*KEY_HELP_SPACING, scr->h, "^O", "Write File");
-    hed_draw_key_help(  1 + 2*KEY_HELP_SPACING, scr->h, "^R", "Read File");
-    hed_draw_key_help(  1 + 3*KEY_HELP_SPACING, scr->h, "^W", "Where Is");
-    if (! editor->read_only)
-      hed_draw_key_help(1 + 4*KEY_HELP_SPACING, scr->h, "TAB", "Switch Mode");
+    hed_draw_key_help(  1 + 1*KEY_HELP_SPACING, scr->h, "^G", "Get help");
+    hed_draw_key_help(  1 + 2*KEY_HELP_SPACING, scr->h, "^O", "Write File");
+    hed_draw_key_help(  1 + 3*KEY_HELP_SPACING, scr->h, "^R", "Read File");
+    hed_draw_key_help(  1 + 4*KEY_HELP_SPACING, scr->h, "^W", "Where Is");
   }
   clear_eol();
 }
@@ -680,6 +680,11 @@ static void process_input(struct hed_editor *editor)
 
   case KEY_BAD_SEQUENCE:
     show_msg("Unknown key: <ESC>%s", key_err);
+    break;
+
+  case CTRL_KEY('g'):
+    hed_display_help(editor);
+    scr->redraw_needed = true;
     break;
     
   case CTRL_KEY('x'):

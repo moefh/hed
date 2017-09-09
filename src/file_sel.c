@@ -441,9 +441,6 @@ static void process_input(struct file_sel *fs)
 
 int hed_select_file(struct hed_editor *editor, char *filename, size_t max_filename_len)
 {
-  UNUSED(filename);
-  UNUSED(max_filename_len);
-  
   clear_msg();
 
   struct hed_screen *scr = &editor->screen;
