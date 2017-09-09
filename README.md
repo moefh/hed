@@ -2,7 +2,7 @@
 
 A tiny [nano](https://www.nano-editor.org/)-like hex editor
 
-![Screenshot](/doc/hed.png?raw=true "Screenshot")
+![Screenshot](/doc/hed-v0.4.png?raw=true "Screenshot")
 
 ## Features
 
