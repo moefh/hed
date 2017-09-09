@@ -124,7 +124,6 @@ static void draw_footer(struct hed_editor *editor)
 
   case HED_MODE_READ_STRING:
     hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^C", "Cancel");
-    //hed_draw_key_help(1 + 1*KEY_HELP_SPACING, scr->h, "RET", "Accept");
     break;
 
   case HED_MODE_READ_YESNO:
@@ -138,10 +137,11 @@ static void draw_footer(struct hed_editor *editor)
       hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^X", "Exit");
     else
       hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^X", "Close");
-    hed_draw_key_help(1 + 1*KEY_HELP_SPACING, scr->h, "^O", "Write File");
-    hed_draw_key_help(1 + 2*KEY_HELP_SPACING, scr->h, "^R", "Read File");
-    hed_draw_key_help(1 + 3*KEY_HELP_SPACING, scr->h, "^W", "Where Is");
-    hed_draw_key_help(1 + 4*KEY_HELP_SPACING, scr->h, "TAB", "Switch Mode");
+    hed_draw_key_help(  1 + 1*KEY_HELP_SPACING, scr->h, "^O", "Write File");
+    hed_draw_key_help(  1 + 2*KEY_HELP_SPACING, scr->h, "^R", "Read File");
+    hed_draw_key_help(  1 + 3*KEY_HELP_SPACING, scr->h, "^W", "Where Is");
+    if (! editor->read_only)
+      hed_draw_key_help(1 + 4*KEY_HELP_SPACING, scr->h, "TAB", "Switch Mode");
   }
   clear_eol();
 }
@@ -172,7 +172,7 @@ static void draw_main_screen(struct hed_editor *editor)
       box_draw("| ");
       int len = (file->data_len - pos < 16) ? file->data_len - pos : 16;
       char buf[17];
-      set_bold(file->pane == HED_PANE_HEX);
+      set_bold(file->pane == HED_PANE_HEX && ! editor->read_only);
       for (int j = 0; j < len; j++) {
         uint8_t b = file->data[pos+j];
 
@@ -193,7 +193,7 @@ static void draw_main_screen(struct hed_editor *editor)
         out("%02x ", b);
         if (file->cursor_pos == pos + j) {
           reset_color();
-          set_bold(file->pane == HED_PANE_HEX);
+          set_bold(file->pane == HED_PANE_HEX && ! editor->read_only);
         }
         
         buf[j] = (b < 32 || b >= 0x7f) ? '.' : b;
@@ -208,7 +208,7 @@ static void draw_main_screen(struct hed_editor *editor)
       set_bold(false);
       box_draw("| ");
 
-      set_bold(file->pane == HED_PANE_TEXT);
+      set_bold(file->pane == HED_PANE_TEXT && ! editor->read_only);
       if (file->cursor_pos >= pos && file->cursor_pos <= pos + 16) {
         int n_before = file->cursor_pos - pos;
         out("%.*s", n_before, buf);
@@ -216,7 +216,7 @@ static void draw_main_screen(struct hed_editor *editor)
         set_bold(false);
         out("%c", buf[n_before]);
         reset_color(); 
-        set_bold(file->pane == HED_PANE_TEXT);
+        set_bold(file->pane == HED_PANE_TEXT && ! editor->read_only);
         if (n_before < 16)
           out("%.*s", 16-n_before-1, buf + n_before + 1);
         out("\r\n");
@@ -459,8 +459,6 @@ static int prompt_get_text(struct hed_editor *editor, const char *prompt, char *
     set_color(FG_BLACK, BG_GRAY);
     move_cursor(1, scr->h - 1);
     out(" %s: %s", prompt, str);
-    //move_cursor(4 + prompt_len, scr->h - 1);
-    //out("%s", str);
     clear_eol();
     move_cursor(4 + prompt_len + cursor_pos, scr->h - 1);
     set_color(FG_BLACK, BG_GRAY);
