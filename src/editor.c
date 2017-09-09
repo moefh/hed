@@ -204,8 +204,8 @@ static void draw_footer(struct hed_editor *editor)
     hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^X", "Exit");
     hed_draw_key_help(1 + 1*KEY_HELP_SPACING, scr->h, "^O", "Write File");
     hed_draw_key_help(1 + 2*KEY_HELP_SPACING, scr->h, "^R", "Read File");
-    hed_draw_key_help(1 + 3*KEY_HELP_SPACING, scr->h, "TAB", "Switch Mode");
-    hed_draw_key_help(1 + 4*KEY_HELP_SPACING, scr->h, "^W", "Where Is");
+    hed_draw_key_help(1 + 3*KEY_HELP_SPACING, scr->h, "^W", "Where Is");
+    hed_draw_key_help(1 + 4*KEY_HELP_SPACING, scr->h, "TAB", "Switch Mode");
   }
   clear_eol();
 }

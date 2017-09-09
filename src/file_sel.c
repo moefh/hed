@@ -285,7 +285,7 @@ static void draw_main_screen(struct file_sel *fs)
   int col_len = (fs->max_filename_len+1 > INT_MAX) ? INT_MAX : (int)(fs->max_filename_len+1);
   if (col_len > scr->w - 20)
     col_len = scr->w - 20;
-  while (file != NULL && line + 2 + BORDER_LINES < scr->h) {
+  while (file != NULL && line + 1 + BORDER_LINES < scr->h) {
     if (file == fs->sel)
       set_color(FG_BLACK, BG_GRAY);
     else
@@ -316,7 +316,7 @@ static void draw_main_screen(struct file_sel *fs)
     line++;
   }
 
-  while (line + 2 + BORDER_LINES < scr->h) {
+  while (line + 1 + BORDER_LINES < scr->h) {
     reset_color();
     move_cursor(1, line + 1 + HEADER_LINES);
     clear_eol();
@@ -342,7 +342,7 @@ static void move_sel_up(struct file_sel *fs)
 static void move_sel_down(struct file_sel *fs)
 {
   struct hed_screen *scr = &fs->editor->screen;
-  size_t n_page_lines = scr->h - 2 - BORDER_LINES;
+  size_t n_page_lines = scr->h - 1 - BORDER_LINES;
 
   if (fs->sel->next) {
     fs->sel = fs->sel->next;
@@ -355,9 +355,9 @@ static void move_sel_down(struct file_sel *fs)
 static void move_sel_page_up(struct file_sel *fs)
 {
   struct hed_screen *scr = &fs->editor->screen;
-  size_t n_page_lines = scr->h - 2 - BORDER_LINES;
+  size_t n_page_lines = scr->h - 1 - BORDER_LINES;
 
-  for (int i = 0; i < scr->h - 2 - BORDER_LINES; i++) {
+  for (size_t i = 0; i < n_page_lines; i++) {
     if (fs->sel->prev)
       fs->sel = fs->sel->prev;
     else
@@ -375,9 +375,9 @@ static void move_sel_page_up(struct file_sel *fs)
 static void move_sel_page_down(struct file_sel *fs)
 {
   struct hed_screen *scr = &fs->editor->screen;
-  size_t n_page_lines = scr->h - 2 - BORDER_LINES;
+  size_t n_page_lines = scr->h - 1 - BORDER_LINES;
 
-  for (int i = 0; i < scr->h - 2 - BORDER_LINES; i++) {
+  for (size_t i = 0; i < n_page_lines; i++) {
     if (fs->sel->next)
       fs->sel = fs->sel->next;
     else
