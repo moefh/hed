@@ -15,7 +15,7 @@
 
 static int read_key_seq(char *seq, size_t len)
 {
-  if (len == 1 && ((seq[0] >= 'A' && seq[0] <= 'Z') || (seq[0] >= 'a' && seq[0] <= 'z')))
+  if (len == 1 && seq[0] >= 32 && seq[0] < 127)
     return ALT_KEY(seq[0]);
   
   if (len == 2 && seq[0] == '[' && IS_LETTER(seq[1])) {

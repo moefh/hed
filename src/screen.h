@@ -31,8 +31,6 @@ struct hed_screen {
   int term_fd;
   int w;
   int h;
-  size_t cursor_pos;
-  size_t top_line;
 
   bool window_changed;
   bool redraw_needed;

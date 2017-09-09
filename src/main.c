@@ -6,6 +6,7 @@
 #include <errno.h>
 
 #include "editor.h"
+#include "file.h"
 
 static uint8_t *read_stdin(size_t *ret_len)
 {
@@ -94,14 +95,16 @@ int main(int argc, char **argv)
     editor.read_only = true;
 
   if (filename) {
+    struct hed_file *file;
     if (strcmp(filename, "-") == 0) {
       size_t data_len = 0;
       uint8_t *data = read_stdin(&data_len);
       if (! data)
         exit(1);
-      hed_set_data(&editor, data, data_len);
+      file = hed_new_file_from_data(data, data_len);
     } else
-      hed_read_file(&editor, argv[1]);
+      file = hed_read_file(argv[1]);
+    hed_add_file(&editor, file);
   }
   
   return hed_run_editor(&editor, offset);

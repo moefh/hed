@@ -41,8 +41,6 @@ int hed_init_screen(struct hed_screen *scr)
   screen->vt100_box_draw = true;
   screen->msg_was_set = false;
   screen->cur_msg[0] = '\0';
-  screen->top_line = 0;
-  screen->cursor_pos = 0;
   screen->out_buf_len = 0;
   
   signal(SIGWINCH, handle_sigwinch);

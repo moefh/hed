@@ -11,144 +11,77 @@
 #include "screen.h"
 #include "term.h"
 #include "input.h"
+#include "file.h"
 #include "file_sel.h"
 
 void hed_init_editor(struct hed_editor *editor)
 {
-  editor->filename = NULL;
-  editor->data = NULL;
-  editor->data_len = 0;
-  editor->modified = false;
-  editor->edit_mode = HED_MODE_DEFAULT;
-  editor->pane = HED_PANE_HEX;
+  editor->file = NULL;
+  editor->mode = HED_MODE_DEFAULT;
   editor->half_byte_edited = false;
   editor->search_str[0] = '\0';
   editor->read_only = false;
-
-  editor->screen.cursor_pos = 0;
-  editor->screen.top_line = 0;
 }
 
 static void destroy_editor(struct hed_editor *editor)
 {
-  if (editor->filename)
-    free(editor->filename);
-  if (editor->data)
-    free(editor->data);
+  struct hed_file *file = editor->file;
+  if (! file)
+    return;
+  
+  do {
+    struct hed_file *next = file->next;
+    hed_free_file(file);
+    file = next;
+  } while (file != editor->file);
 }
 
-static int write_file(struct hed_editor *editor, const char *filename)
+static void close_current_file(struct hed_editor *editor)
 {
-  if (! editor->data)
-    return 0;
-
-  char *new_filename = NULL;
-  if (! editor->filename || strcmp(filename, editor->filename) != 0) {
-    new_filename = malloc(strlen(filename) + 1);
-    if (! new_filename)
-      return show_msg("ERROR: out of memory");
-    strcpy(new_filename, filename);
+  struct hed_file *file = editor->file;
+  if (! file)
+    return;
+  if (file->next == file) {
+    hed_free_file(file);
+    editor->file = NULL;
+    return;
   }
   
-  FILE *f = fopen(filename, "w");
-  if (! f) {
-    free(new_filename);
-    return show_msg("ERROR: can't open file '%s'", filename);
-  }
-  if (fwrite(editor->data, 1, editor->data_len, f) != editor->data_len) {
-    free(new_filename);
-    fclose(f);
-    return show_msg("ERROR: can't write file '%s'", filename);
-  }
-  fclose(f);
-  show_msg("File saved: '%s'", filename);
-  editor->modified = false;
-
-  if (new_filename)
-    editor->filename = new_filename;
-  return 0;
+  file->next->prev = file->prev;
+  file->prev->next = file->next;
+  editor->file = file->next;
+  hed_free_file(file);
 }
 
-int hed_set_data(struct hed_editor *editor, uint8_t *data, size_t data_len)
+void hed_add_file(struct hed_editor *editor, struct hed_file *file)
 {
-  if (editor->filename)
-    free(editor->filename);
-  if (editor->data)
-    free(editor->data);
+  // close current file if it's the only one and it's empty
+  if (editor->file && editor->file == editor->file->next && ! editor->file->data)
+    close_current_file(editor);
   
-  editor->data = data;
-  editor->data_len = data_len;
-  editor->filename = NULL;
-  editor->modified = (data != NULL);
-  return 0;
-}
-
-int hed_read_file(struct hed_editor *editor, const char *filename)
-{
-  FILE *f = fopen(filename, "r");
-  if (! f)
-    return show_msg("ERROR: can't open file '%s'", filename);
-
-  char *new_filename = malloc(strlen(filename) + 1);
-  if (! new_filename)
-    goto err;
-  strcpy(new_filename, filename);
-  
-  // seekable file
-  if (fseek(f, 0, SEEK_END) != -1) {
-    long size = ftell(f);
-    if (size < 0 || size > INT_MAX) {
-      show_msg("ERROR: file is too large");
-      goto err;
-    }
-    if (fseek(f, 0, SEEK_SET) == -1) {
-      show_msg("ERROR: can't seek to start of file");
-      goto err;
-    }
-    uint8_t *data = malloc(size);
-    if (! data) {
-      show_msg("ERROR: not enough memory for %ld bytes", size);
-      goto err;
-    }
-    
-    if (fread(data, 1, size, f) != (size_t) size) {
-      show_msg("ERROR: error reading file");
-      free(data);
-      goto err;
-    }
-
-    if (editor->filename)
-      free(editor->filename);
-    if (editor->data)
-      free(editor->data);
-    editor->data = data;
-    editor->data_len = size;
-    editor->filename = new_filename;
-    editor->modified = false;
-    editor->screen.cursor_pos = 0;
-    editor->screen.top_line = 0;
-    fclose(f);
-    return 0;
+  if (! editor->file) {
+    file->next = file;
+    file->prev = file;
+    editor->file = file;
+    return;
   }
-
-  show_msg("ERROR: reading from non-seekable files implemented");
-
- err:
-  if (new_filename)
-    free(new_filename);
-  fclose(f);
-  return -1;
+  
+  file->next = editor->file;
+  file->prev = editor->file->prev;
+  file->prev->next = file;
+  file->next->prev = file;
 }
 
 static void draw_header(struct hed_editor *editor)
 {
   struct hed_screen *scr = &editor->screen;
+  struct hed_file *file = editor->file;
 
   reset_color();
   set_color(FG_BLACK, BG_GRAY);
   move_cursor(1, 1);
-  out(" %s", (editor->filename) ? editor->filename : "New Buffer");
-  if (editor->modified)
+  out(" %s", (file->filename) ? file->filename : "New Buffer");
+  if (file->modified)
     out(" (modified)");
   if (editor->read_only)
     out(" (view mode)");
@@ -183,7 +116,7 @@ static void draw_footer(struct hed_editor *editor)
   }
   clear_eol();
 
-  switch (editor->edit_mode) {
+  switch (editor->mode) {
   case HED_MODE_READ_FILENAME:
     hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^C", "Cancel");
     hed_draw_key_help(1 + 1*KEY_HELP_SPACING, scr->h, "^T", "To Files");
@@ -201,7 +134,10 @@ static void draw_footer(struct hed_editor *editor)
     break;
 
   case HED_MODE_DEFAULT:
-    hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^X", "Exit");
+    if (editor->file->next == editor->file)
+      hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^X", "Exit");
+    else
+      hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^X", "Close");
     hed_draw_key_help(1 + 1*KEY_HELP_SPACING, scr->h, "^O", "Write File");
     hed_draw_key_help(1 + 2*KEY_HELP_SPACING, scr->h, "^R", "Read File");
     hed_draw_key_help(1 + 3*KEY_HELP_SPACING, scr->h, "^W", "Where Is");
@@ -213,8 +149,9 @@ static void draw_footer(struct hed_editor *editor)
 static void draw_main_screen(struct hed_editor *editor)
 {
   struct hed_screen *scr = &editor->screen;
+  struct hed_file *file = editor->file;
 
-  if (scr->window_changed) {
+  if (scr->window_changed || ! file->data) {
     reset_color();
     clear_screen();
     scr->window_changed = false;
@@ -223,42 +160,40 @@ static void draw_main_screen(struct hed_editor *editor)
   draw_header(editor);
   draw_footer(editor);
 
-  //static int count = 0; move_cursor(scr->w-5, 1); out("%5d", count++ % 1000);
-  
-  if (editor->data) {
+  if (file->data) {
     move_cursor(1, 3);
 
     for (int i = 0; i < scr->h - BORDER_LINES; i++) {
-      size_t pos = 16 * (scr->top_line + i);
-      if (pos >= editor->data_len)
+      size_t pos = 16 * (file->top_line + i);
+      if (pos >= file->data_len)
         break;
       set_bold(false);
       out("%08x ", (unsigned) pos);
       box_draw("| ");
-      int len = (editor->data_len - pos < 16) ? editor->data_len - pos : 16;
+      int len = (file->data_len - pos < 16) ? file->data_len - pos : 16;
       char buf[17];
-      set_bold(editor->pane == HED_PANE_HEX);
+      set_bold(file->pane == HED_PANE_HEX);
       for (int j = 0; j < len; j++) {
-        uint8_t b = editor->data[pos+j];
+        uint8_t b = file->data[pos+j];
 
         if (j == 8)
           out(" ");
         
-        if (scr->cursor_pos == pos + j) {
-          int cur_x = scr->cursor_pos % 16;
-          int cur_y = scr->cursor_pos / 16 - scr->top_line;
+        if (file->cursor_pos == pos + j) {
+          int cur_x = file->cursor_pos % 16;
+          int cur_y = file->cursor_pos / 16 - file->top_line;
           move_cursor(11 + 3*cur_x + (j >= 8), 3 + cur_y);
           set_color(FG_BLACK,
                     ((editor->half_byte_edited) ? BG_YELLOW
-                     : (editor->pane == HED_PANE_HEX && ! editor->read_only) ? BG_GREEN
+                     : (file->pane == HED_PANE_HEX && ! editor->read_only) ? BG_GREEN
                      : BG_GRAY));
           set_bold(false);
           out(" ");
         }
         out("%02x ", b);
-        if (scr->cursor_pos == pos + j) {
+        if (file->cursor_pos == pos + j) {
           reset_color();
-          set_bold(editor->pane == HED_PANE_HEX);
+          set_bold(file->pane == HED_PANE_HEX);
         }
         
         buf[j] = (b < 32 || b >= 0x7f) ? '.' : b;
@@ -273,15 +208,15 @@ static void draw_main_screen(struct hed_editor *editor)
       set_bold(false);
       box_draw("| ");
 
-      set_bold(editor->pane == HED_PANE_TEXT);
-      if (scr->cursor_pos >= pos && scr->cursor_pos <= pos + 16) {
-        int n_before = scr->cursor_pos - pos;
+      set_bold(file->pane == HED_PANE_TEXT);
+      if (file->cursor_pos >= pos && file->cursor_pos <= pos + 16) {
+        int n_before = file->cursor_pos - pos;
         out("%.*s", n_before, buf);
-        set_color(FG_BLACK, (editor->pane == HED_PANE_TEXT && ! editor->read_only) ? BG_GREEN : BG_GRAY);
+        set_color(FG_BLACK, (file->pane == HED_PANE_TEXT && ! editor->read_only) ? BG_GREEN : BG_GRAY);
         set_bold(false);
         out("%c", buf[n_before]);
         reset_color(); 
-        set_bold(editor->pane == HED_PANE_TEXT);
+        set_bold(file->pane == HED_PANE_TEXT);
         if (n_before < 16)
           out("%.*s", 16-n_before-1, buf + n_before + 1);
         out("\r\n");
@@ -298,28 +233,29 @@ static void draw_main_screen(struct hed_editor *editor)
 void hed_set_cursor_pos(struct hed_editor *editor, size_t pos, size_t visible_len_after)
 {
   struct hed_screen *scr = &editor->screen;
+  struct hed_file *file = editor->file;
   size_t n_page_lines = scr->h - BORDER_LINES;
-  size_t last_line = editor->data_len / 16 + (editor->data_len % 16 != 0);
+  size_t last_line = file->data_len / 16 + (file->data_len % 16 != 0);
 
-  if (pos >= editor->data_len)
-    pos = (editor->data_len == 0) ? 0 : editor->data_len-1;
-  if (pos + visible_len_after >= editor->data_len)
-    visible_len_after = editor->data_len - pos;
+  if (pos >= file->data_len)
+    pos = (file->data_len == 0) ? 0 : file->data_len-1;
+  if (pos + visible_len_after >= file->data_len)
+    visible_len_after = file->data_len - pos;
   
-  scr->cursor_pos = pos;
+  file->cursor_pos = pos;
 
   // If the cursor or 'visible_len_after' bytes after it are not visible,
   // center the screen vertically around the cursor
-  if (! (scr->cursor_pos / 16 >= scr->top_line
-         && (scr->cursor_pos+visible_len_after) / 16 >= scr->top_line
-         && scr->cursor_pos / 16 <= scr->top_line + n_page_lines
-         && (scr->cursor_pos+visible_len_after) / 16 <= scr->top_line + n_page_lines)) {
-    if (scr->cursor_pos / 16 < n_page_lines/2)
-      scr->top_line = 0;
+  if (! (file->cursor_pos / 16 >= file->top_line
+         && (file->cursor_pos+visible_len_after) / 16 >= file->top_line
+         && file->cursor_pos / 16 <= file->top_line + n_page_lines
+         && (file->cursor_pos+visible_len_after) / 16 <= file->top_line + n_page_lines)) {
+    if (file->cursor_pos / 16 < n_page_lines/2)
+      file->top_line = 0;
     else {
-      scr->top_line = scr->cursor_pos / 16 - n_page_lines/2;
-      if (scr->top_line + n_page_lines > last_line)
-        scr->top_line = last_line - n_page_lines;
+      file->top_line = file->cursor_pos / 16 - n_page_lines/2;
+      if (file->top_line + n_page_lines > last_line)
+        file->top_line = last_line - n_page_lines;
     }
   }
   scr->redraw_needed = true;
@@ -328,11 +264,13 @@ void hed_set_cursor_pos(struct hed_editor *editor, size_t pos, size_t visible_le
 static void cursor_right(struct hed_editor *editor)
 {
   struct hed_screen *scr = &editor->screen;
-  if (scr->cursor_pos + 1 < editor->data_len) {
-    scr->cursor_pos++;
+  struct hed_file *file = editor->file;
+
+  if (file->cursor_pos + 1 < file->data_len) {
+    file->cursor_pos++;
     size_t n_page_lines = scr->h - BORDER_LINES;
-    while (scr->cursor_pos >= 16 * (scr->top_line + n_page_lines))
-      scr->top_line++;
+    while (file->cursor_pos >= 16 * (file->top_line + n_page_lines))
+      file->top_line++;
     scr->redraw_needed = true;
   }
 }
@@ -340,10 +278,12 @@ static void cursor_right(struct hed_editor *editor)
 static void cursor_left(struct hed_editor *editor)
 {
   struct hed_screen *scr = &editor->screen;
-  if (scr->cursor_pos >= 1) {
-    scr->cursor_pos--;
-    while (scr->cursor_pos < 16 * scr->top_line)
-      scr->top_line--;
+  struct hed_file *file = editor->file;
+
+  if (file->cursor_pos >= 1) {
+    file->cursor_pos--;
+    while (file->cursor_pos < 16 * file->top_line)
+      file->top_line--;
     scr->redraw_needed = true;
   }
 }
@@ -351,10 +291,12 @@ static void cursor_left(struct hed_editor *editor)
 static void cursor_up(struct hed_editor *editor)
 {
   struct hed_screen *scr = &editor->screen;
-  if (scr->cursor_pos >= 16) {
-    scr->cursor_pos -= 16;
-    while (scr->cursor_pos < 16 * scr->top_line)
-      scr->top_line--;
+  struct hed_file *file = editor->file;
+
+  if (file->cursor_pos >= 16) {
+    file->cursor_pos -= 16;
+    while (file->cursor_pos < 16 * file->top_line)
+      file->top_line--;
     scr->redraw_needed = true;
   }
 }
@@ -362,11 +304,13 @@ static void cursor_up(struct hed_editor *editor)
 static void cursor_down(struct hed_editor *editor)
 {
   struct hed_screen *scr = &editor->screen;
-  if (scr->cursor_pos + 16 < editor->data_len) {
-    scr->cursor_pos += 16;
+  struct hed_file *file = editor->file;
+
+  if (file->cursor_pos + 16 < file->data_len) {
+    file->cursor_pos += 16;
     size_t n_page_lines = scr->h - BORDER_LINES;
-    while (scr->cursor_pos >= 16 * (scr->top_line + n_page_lines))
-      scr->top_line++;
+    while (file->cursor_pos >= 16 * (file->top_line + n_page_lines))
+      file->top_line++;
     scr->redraw_needed = true;
   }
 }
@@ -374,70 +318,82 @@ static void cursor_down(struct hed_editor *editor)
 static void cursor_page_up(struct hed_editor *editor)
 {
   struct hed_screen *scr = &editor->screen;
-  int cursor_delta = scr->cursor_pos - 16*scr->top_line;
+  struct hed_file *file = editor->file;
+  int cursor_delta = file->cursor_pos - 16*file->top_line;
   size_t n_page_lines = scr->h - BORDER_LINES;
-  if (scr->top_line == 0)
+
+  if (file->top_line == 0)
     cursor_delta %= 16;
-  else if (scr->top_line >= n_page_lines)
-    scr->top_line -= n_page_lines;
+  else if (file->top_line >= n_page_lines)
+    file->top_line -= n_page_lines;
   else
-    scr->top_line = 0;
-  scr->cursor_pos = 16*scr->top_line + cursor_delta;
+    file->top_line = 0;
+  file->cursor_pos = 16*file->top_line + cursor_delta;
   scr->redraw_needed = true;
 }
 
 static void cursor_page_down(struct hed_editor *editor)
 {
   struct hed_screen *scr = &editor->screen;
-  int cursor_delta = scr->cursor_pos - 16*scr->top_line;
+  struct hed_file *file = editor->file;
+  int cursor_delta = file->cursor_pos - 16*file->top_line;
   size_t n_page_lines = scr->h - BORDER_LINES;
-  size_t last_line = editor->data_len / 16 + (editor->data_len % 16 != 0);
-  if (last_line < n_page_lines || scr->top_line == last_line - n_page_lines) {
+  size_t last_line = file->data_len / 16 + (file->data_len % 16 != 0);
+
+  if (last_line < n_page_lines || file->top_line == last_line - n_page_lines) {
     if (last_line < n_page_lines)
-      scr->top_line = 0;
-    cursor_delta = editor->data_len - 16*scr->top_line - 1;
-  } else if (last_line > n_page_lines && scr->top_line + 2*n_page_lines < last_line)
-    scr->top_line += n_page_lines;
+      file->top_line = 0;
+    cursor_delta = file->data_len - 16*file->top_line - 1;
+  } else if (last_line > n_page_lines && file->top_line + 2*n_page_lines < last_line)
+    file->top_line += n_page_lines;
   else
-    scr->top_line = last_line - n_page_lines;
-  scr->cursor_pos = 16*scr->top_line + cursor_delta;
+    file->top_line = last_line - n_page_lines;
+  file->cursor_pos = 16*file->top_line + cursor_delta;
   scr->redraw_needed = true;
 }
 
 static void cursor_home(struct hed_editor *editor)
 {
   struct hed_screen *scr = &editor->screen;
-  scr->cursor_pos = scr->cursor_pos / 16 * 16;
+  struct hed_file *file = editor->file;
+
+  file->cursor_pos = file->cursor_pos / 16 * 16;
   scr->redraw_needed = true;
 }
 
 static void cursor_end(struct hed_editor *editor)
 {
   struct hed_screen *scr = &editor->screen;
-  scr->cursor_pos = scr->cursor_pos / 16 * 16 + 15;
-  if (scr->cursor_pos >= editor->data_len)
-    scr->cursor_pos = editor->data_len - 1;
+  struct hed_file *file = editor->file;
+
+  file->cursor_pos = file->cursor_pos / 16 * 16 + 15;
+  if (file->cursor_pos >= file->data_len)
+    file->cursor_pos = file->data_len - 1;
   scr->redraw_needed = true;
 }
 
 static void cursor_start_of_file(struct hed_editor *editor)
 {
   struct hed_screen *scr = &editor->screen;
-  scr->cursor_pos = 0;
-  scr->top_line = 0;
+  struct hed_file *file = editor->file;
+
+  file->cursor_pos = 0;
+  file->top_line = 0;
   scr->redraw_needed = true;
 }
 
 static void cursor_end_of_file(struct hed_editor *editor)
 {
   struct hed_screen *scr = &editor->screen;
+  struct hed_file *file = editor->file;
   size_t n_page_lines = scr->h - BORDER_LINES;
-  size_t last_line = editor->data_len / 16 + (editor->data_len % 16 != 0);
-  scr->cursor_pos = editor->data_len - 1;
+  size_t last_line = file->data_len / 16 + (file->data_len % 16 != 0);
+  
+  file->cursor_pos = file->data_len - 1;
   if (last_line < n_page_lines)
-    scr->top_line = 0;
+    file->top_line = 0;
   else
-    scr->top_line = last_line - n_page_lines;
+    file->top_line = last_line - n_page_lines;
   scr->redraw_needed = true;
 }
 
@@ -449,7 +405,7 @@ static int prompt_get_yesno(struct hed_editor *editor, const char *prompt, bool 
   size_t prompt_len = strlen(prompt);
   char key_err[64];
 
-  editor->edit_mode = HED_MODE_READ_YESNO;
+  editor->mode = HED_MODE_READ_YESNO;
   scr->redraw_needed = true;
   while (! editor->quit) {
     if (scr->redraw_needed)
@@ -475,7 +431,7 @@ static int prompt_get_yesno(struct hed_editor *editor, const char *prompt, bool 
         *response = true;
       else if (k == 'n' || k == 'N')
         *response = false;
-      editor->edit_mode = HED_MODE_DEFAULT;
+      editor->mode = HED_MODE_DEFAULT;
       show_cursor(false);
       clear_msg();
       return (k == CTRL_KEY('c')) ? -1 : 0;
@@ -521,7 +477,7 @@ static int prompt_get_text(struct hed_editor *editor, const char *prompt, char *
       
     case CTRL_KEY('c'):
     case '\r':
-      editor->edit_mode = HED_MODE_DEFAULT;
+      editor->mode = HED_MODE_DEFAULT;
       show_cursor(false);
       clear_msg();
       return (k == '\r') ? 0 : -1;
@@ -532,13 +488,13 @@ static int prompt_get_text(struct hed_editor *editor, const char *prompt, char *
     case KEY_ARROW_RIGHT: if (cursor_pos < str_len) cursor_pos++; break;
 
     case CTRL_KEY('t'):
-      if (editor->edit_mode == HED_MODE_READ_FILENAME) {
+      if (editor->mode == HED_MODE_READ_FILENAME) {
         show_cursor(false);
         char filename[256];
         if (hed_select_file(editor, filename, sizeof(filename)) >= 0) {
           strncpy(str, filename, max_str_len-1);
           str[max_str_len-1] = '\0';
-          editor->edit_mode = HED_MODE_DEFAULT;
+          editor->mode = HED_MODE_DEFAULT;
           return 0;
         }
         show_cursor(true);
@@ -571,28 +527,28 @@ static int prompt_get_text(struct hed_editor *editor, const char *prompt, char *
     }
   }
   
-  editor->edit_mode = HED_MODE_DEFAULT;
+  editor->mode = HED_MODE_DEFAULT;
   clear_msg();
   return 0;
 }
 
 static int prompt_get_string(struct hed_editor *editor, const char *prompt, char *str, size_t max_str_len)
 {
-  editor->edit_mode = HED_MODE_READ_STRING;
+  editor->mode = HED_MODE_READ_STRING;
   return prompt_get_text(editor, prompt, str, max_str_len);
 }
 
 static int prompt_get_filename(struct hed_editor *editor, const char *prompt, char *str, size_t max_str_len)
 {
-  editor->edit_mode = HED_MODE_READ_FILENAME;
+  editor->mode = HED_MODE_READ_FILENAME;
   return prompt_get_text(editor, prompt, str, max_str_len);
 }
   
 static int prompt_save_file(struct hed_editor *editor)
 {
   char filename[256];
-  if (editor->filename)
-    snprintf(filename, sizeof(filename), "%s", editor->filename);
+  if (editor->file->filename)
+    snprintf(filename, sizeof(filename), "%s", editor->file->filename);
   else
     filename[0] = '\0';
   if (prompt_get_filename(editor, "Write file", filename, sizeof(filename)) < 0) {
@@ -600,7 +556,7 @@ static int prompt_save_file(struct hed_editor *editor)
     return -1;
   }
   editor->screen.redraw_needed = true;
-  return write_file(editor, filename);
+  return hed_write_file(editor->file, filename);
 }
 
 static int prompt_read_file(struct hed_editor *editor)
@@ -612,7 +568,13 @@ static int prompt_read_file(struct hed_editor *editor)
     return -1;
   }
   editor->screen.redraw_needed = true;
-  return hed_read_file(editor, filename);
+  
+  struct hed_file *file = hed_read_file(filename);
+  if (! file)
+    return -1;
+  hed_add_file(editor, file);
+  editor->file = file;
+  return 0;
 }
 
 static size_t conv_search_bytes(uint8_t *bytes, size_t max_len, const char *search_str)
@@ -653,12 +615,12 @@ static size_t conv_search_bytes(uint8_t *bytes, size_t max_len, const char *sear
 
 static int perform_search(struct hed_editor *editor)
 {
-  struct hed_screen *scr = &editor->screen;
+  struct hed_file *file = editor->file;
 
   size_t search_len = strlen(editor->search_str);
   uint8_t *search_bytes;
   uint8_t search_buf[sizeof(editor->search_str)];
-  if (editor->pane == HED_PANE_TEXT) {
+  if (file->pane == HED_PANE_TEXT) {
     search_bytes = (uint8_t *) editor->search_str;
   } else {
     search_len = conv_search_bytes(search_buf, sizeof(search_buf), editor->search_str);
@@ -670,15 +632,15 @@ static int perform_search(struct hed_editor *editor)
   // TODO: Boyer-Moore search?
   bool found = false;
   size_t pos;
-  for (pos = scr->cursor_pos+1; pos + search_len < editor->data_len; pos++) {
-    if (memcmp(editor->data + pos, search_bytes, search_len) == 0) {
+  for (pos = file->cursor_pos+1; pos + search_len < file->data_len; pos++) {
+    if (memcmp(file->data + pos, search_bytes, search_len) == 0) {
       found = true;
-      scr->cursor_pos = pos;
+      file->cursor_pos = pos;
       break;
     }
   }
   if (! found)
-    return show_msg((editor->pane == HED_PANE_HEX) ? "Byte sequence not found" : "Text not found");
+    return show_msg((file->pane == HED_PANE_HEX) ? "Byte sequence not found" : "Text not found");
   hed_set_cursor_pos(editor, pos, search_len);
   return 0;
 }
@@ -686,6 +648,7 @@ static int perform_search(struct hed_editor *editor)
 static void process_input(struct hed_editor *editor)
 {
   struct hed_screen *scr = &editor->screen;
+  struct hed_file *file = editor->file;
   
   char key_err[64];
   int k = read_key(scr->term_fd, key_err, sizeof(key_err));
@@ -703,30 +666,46 @@ static void process_input(struct hed_editor *editor)
     break;
     
   case CTRL_KEY('x'):
-    if (editor->modified) {
+    if (editor->file->modified) {
       bool save_changes = true;
       if (prompt_get_yesno(editor, "Save changes?  (Answering no will DISCARD changes.)", &save_changes) < 0)
         break;
       if (save_changes) {
-        if (editor->filename) {
-          if (write_file(editor, editor->filename) < 0)
+        if (editor->file->filename) {
+          if (hed_write_file(editor->file, editor->file->filename) < 0)
             break;
         } else {
           if (prompt_save_file(editor) < 0)
             break;
         }
       }
-      editor->quit = true;
-    } else {
-      editor->quit = true;
     }
+    close_current_file(editor);
+    file = editor->file;
+    if (! editor->file) {
+      editor->quit = true;
+      return;
+    }
+    scr->redraw_needed = true;
     break;
 
+  case ALT_KEY('.'):
+    editor->file = editor->file->next;
+    file = editor->file;
+    scr->redraw_needed = true;
+    break;
+    
+  case ALT_KEY(','):
+    editor->file = editor->file->prev;
+    file = editor->file;
+    scr->redraw_needed = true;
+    break;
+    
   case '\t':
-    if (editor->pane == HED_PANE_HEX)
-      editor->pane = HED_PANE_TEXT;
+    if (file->pane == HED_PANE_HEX)
+      file->pane = HED_PANE_TEXT;
     else
-      editor->pane = HED_PANE_HEX;
+      file->pane = HED_PANE_HEX;
     scr->redraw_needed = true;
     break;
     
@@ -736,33 +715,20 @@ static void process_input(struct hed_editor *editor)
     break;
 
   case CTRL_KEY('o'):
-    if (! editor->data)
+    if (! file->data)
       show_msg("No data to write!");
     else
       prompt_save_file(editor);
     break;
 
   case CTRL_KEY('r'):
-    if (editor->data && editor->modified) {
-      bool save_changes = true;
-      if (prompt_get_yesno(editor, "Save changes?  (Answering no will DISCARD changes.)", &save_changes) < 0)
-        break;
-      if (save_changes) {
-        if (editor->filename) {
-          if (write_file(editor, editor->filename) < 0)
-            break;
-        } else {
-          if (prompt_save_file(editor) < 0)
-            break;
-        }
-      }
-    }
     prompt_read_file(editor);
+    file = editor->file;
     break;
 
   case CTRL_KEY('w'):
-    if (editor->data) {
-      const char *prompt = (editor->pane == HED_PANE_HEX) ? "Search bytes" : "Search text";
+    if (file->data) {
+      const char *prompt = (file->pane == HED_PANE_HEX) ? "Search bytes" : "Search text";
       char prompt_str[40];
       if (editor->search_str[0] != '\0') {
         size_t prompt_len = strlen(prompt);
@@ -785,7 +751,7 @@ static void process_input(struct hed_editor *editor)
     break;
 
   case ALT_KEY('g'):
-    if (editor->data) {
+    if (file->data) {
       char location_str[256];
       location_str[0] = '\0';
       if (prompt_get_string(editor, "Go to offset", location_str, sizeof(location_str)) < 0)
@@ -870,11 +836,11 @@ static void process_input(struct hed_editor *editor)
 
   if (! editor->read_only) {
     bool reset_editing_byte = true;
-    if (editor->data && scr->cursor_pos < editor->data_len) {
-      if (editor->pane == HED_PANE_TEXT) {
+    if (file->data && file->cursor_pos < file->data_len) {
+      if (file->pane == HED_PANE_TEXT) {
         if (k >= 32 && k < 0x7f) {
-          editor->data[scr->cursor_pos] = k;
-          editor->modified = true;
+          file->data[file->cursor_pos] = k;
+          editor->file->modified = true;
           cursor_right(editor);
           scr->redraw_needed = true;
         }
@@ -886,15 +852,15 @@ static void process_input(struct hed_editor *editor)
           reset_editing_byte = false;
           if (! editor->half_byte_edited) {
             editor->half_byte_edited = true;
-            editor->data[scr->cursor_pos] &= 0x0f;
-            editor->data[scr->cursor_pos] |= c << 4;
+            file->data[file->cursor_pos] &= 0x0f;
+            file->data[file->cursor_pos] |= c << 4;
           } else {
             editor->half_byte_edited = false;
-            editor->data[scr->cursor_pos] &= 0xf0;
-            editor->data[scr->cursor_pos] |= c;
+            file->data[file->cursor_pos] &= 0xf0;
+            file->data[file->cursor_pos] |= c;
             cursor_right(editor);
           }
-          editor->modified = true;
+          editor->file->modified = true;
           scr->redraw_needed = true;
         }
       }
@@ -917,6 +883,15 @@ static void process_input(struct hed_editor *editor)
 
 int hed_run_editor(struct hed_editor *editor, size_t start_cursor_pos)
 {
+  if (! editor->file) {
+    struct hed_file *file = hed_new_file_from_data(NULL, 0);
+    if (! file) {
+      fprintf(stderr, "ERROR: out of memory\n");
+      return -1;
+    }
+    hed_add_file(editor, file);
+  }
+  
   if (hed_init_screen(&editor->screen) < 0) {
     fprintf(stderr, "ERROR setting up terminal\n");
     return -1;
