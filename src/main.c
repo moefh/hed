@@ -13,7 +13,6 @@ static uint8_t *read_stdin(size_t *ret_len)
   size_t len = 0;
   size_t cap = 0;
 
-  fprintf(stderr, "Reading from stdin, press CTRL+C to abort\n");
   while (true) {
     char buf[4096];
     size_t n = fread(buf, 1, sizeof(buf), stdin);
@@ -47,7 +46,7 @@ static void print_help(const char *progname)
          " FILE             file to edit or view, can be - for stdin\n");
 }
 
-static void print_version()
+static void print_version(void)
 {
   printf("hed, a tiny hex editor\n");
   printf("Version " HED_VERSION " compiled on " __DATE__ "\n");

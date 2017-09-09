@@ -22,6 +22,7 @@
 struct file_item {
   struct file_item *next;
   struct file_item *prev;
+  size_t index;
   bool is_file;
   off_t size;
   char filename[];
@@ -33,8 +34,8 @@ struct file_sel {
   int ret;
   char *dir_name;
   struct file_item *dir_list;
-  size_t dir_list_size;
-  
+
+  size_t max_filename_len;
   struct file_item *sel;
   size_t top_line;
 };
@@ -53,7 +54,7 @@ static void sort_file_list(struct file_item **list)
   size_t n_files = 0;
   for (struct file_item *f = *list; f != NULL; f = f->next)
     n_files++;
-  if (n_files == 0)
+  if (n_files <= 1)
     return;
   
   struct file_item **vec = malloc(sizeof(struct file_item *) * n_files);
@@ -63,6 +64,7 @@ static void sort_file_list(struct file_item **list)
       vec[n_files++] = f;
     qsort(vec, n_files, sizeof(struct file_item *), compare_files);
     for (size_t i = 0; i < n_files; i++) {
+      vec[i]->index = i;
       vec[i]->next = (i+1 < n_files) ? vec[i+1] : NULL;
       vec[i]->prev = (i>0) ? vec[i-1] : NULL;
     }
@@ -97,8 +99,9 @@ static struct file_item *read_dir_list(const char *dir_name)
     show_msg("Can't read directory '%s'", dir_name);
     return NULL;
   }
-  char *buf = NULL;
-  size_t buf_len = 0;
+  char *name_buf = NULL;
+  size_t name_buf_len = 0;
+  bool is_root = strcmp(dir_name, "/") == 0;
   struct stat st;
 
   struct file_item *list = NULL;
@@ -106,9 +109,9 @@ static struct file_item *read_dir_list(const char *dir_name)
     struct dirent *ent = readdir(dir);
     if (! ent)
       break;
-    if (strcmp(ent->d_name, ".") == 0)
+    if (strcmp(ent->d_name, ".") == 0 || (is_root && strcmp(ent->d_name, "..") == 0))
       continue;
-    if (stat_at(dir_name, ent->d_name, &buf, &buf_len, &st) < 0)
+    if (stat_at(dir_name, ent->d_name, &name_buf, &name_buf_len, &st) < 0)
       continue;
     
     size_t file_name_len = strlen(ent->d_name);
@@ -129,8 +132,8 @@ static struct file_item *read_dir_list(const char *dir_name)
     list = file;
   }
   
+  free(name_buf);
   closedir(dir);
-  free(buf);
 
   sort_file_list(&list);
   return list;
@@ -154,10 +157,10 @@ static void init_file_sel(struct file_sel *fs, struct hed_editor *editor)
   fs->editor = editor;
   fs->dir_name = NULL;
   fs->dir_list = NULL;
+  fs->max_filename_len = 0;
   fs->sel = NULL;
   fs->quit = false;
   fs->ret = -1;
-  fs->dir_list_size = 0;
   fs->top_line = 0;
 }
 
@@ -169,7 +172,7 @@ static void destroy_file_sel(struct file_sel *fs)
     free_dir_list(fs->dir_list);
 }
 
-static int change_dir(struct file_sel *fs, const char *dir_name)
+static char *get_absolute_dir(const char *dir_name)
 {
 #if BROKEN_REALPATH
   size_t dir_name_len = strlen(dir_name);
@@ -180,15 +183,39 @@ static int change_dir(struct file_sel *fs, const char *dir_name)
 #else
   char *new_dir_name = realpath(dir_name, NULL);
 #endif
-  
-  struct file_item *dir_list = read_dir_list(dir_name);
+  return new_dir_name;
+}
+
+static int change_dir(struct file_sel *fs, const char *dir_name)
+{
+  char *new_dir_name;
+  if (fs->dir_name) {
+    size_t fs_dir_name_len = strlen(fs->dir_name);
+    size_t dir_name_len = strlen(dir_name);
+    char *full_dir_name = malloc(fs_dir_name_len + 1 + dir_name_len + 1);
+    if (! full_dir_name)
+      return show_msg("ERROR: out of memory");
+    memcpy(full_dir_name, fs->dir_name, fs_dir_name_len);
+    full_dir_name[fs_dir_name_len] = '/';
+    memcpy(full_dir_name + fs_dir_name_len + 1, dir_name, dir_name_len + 1);
+    new_dir_name = get_absolute_dir(full_dir_name);
+    free(full_dir_name);
+  } else
+    new_dir_name = get_absolute_dir(dir_name);
+
+  struct file_item *dir_list = read_dir_list(new_dir_name);
   if (! dir_list) {
     free(new_dir_name);
     return -1;
   }
   size_t num_files = 0;
-  for (struct file_item *f = dir_list; f != NULL; f = f->next)
+  size_t max_filename_len = 0;
+  for (struct file_item *f = dir_list; f != NULL; f = f->next) {
+    size_t filename_len = strlen(f->filename);
+    if (filename_len > max_filename_len)
+      max_filename_len = filename_len;
     num_files++;
+  }
 
   if (fs->dir_name)
     free(fs->dir_name);
@@ -196,7 +223,7 @@ static int change_dir(struct file_sel *fs, const char *dir_name)
     free_dir_list(fs->dir_list);
   fs->dir_name = new_dir_name;
   fs->dir_list = dir_list;
-  fs->dir_list_size = num_files;
+  fs->max_filename_len = max_filename_len;
 
   fs->sel = fs->dir_list;
   fs->top_line = 0;
@@ -255,20 +282,35 @@ static void draw_main_screen(struct file_sel *fs)
     file = file->next;
 
   int line = 0;
+  int col_len = (fs->max_filename_len+1 > INT_MAX) ? INT_MAX : (int)(fs->max_filename_len+1);
+  if (col_len > scr->w - 20)
+    col_len = scr->w - 20;
   while (file != NULL && line + 2 + BORDER_LINES < scr->h) {
     if (file == fs->sel)
       set_color(FG_BLACK, BG_GRAY);
     else
       reset_color();
     move_cursor(1, line + 1 + HEADER_LINES);
-    out("%-.*s", scr->w - 20, file->filename);
-    clear_eol();
-    move_cursor(scr->w - 20, line + 1 + HEADER_LINES);
 
+    // filename
+    size_t filename_len = strlen(file->filename);
+    if (filename_len > (size_t) col_len)
+      out("%.*s", col_len, file->filename);
+    else
+      out("%s", file->filename);
+    for (size_t i = filename_len; i < (size_t)col_len; i++)
+      out(" ");
+
+    // size
     if (file->is_file)
       out("%14" PRIu64 " bytes", (uint64_t) file->size);
     else
       out("               (dir)");
+
+    // clear rest of line
+    if (file == fs->sel)
+      reset_color();
+    clear_eol();
         
     file = file->next;
     line++;
@@ -283,6 +325,71 @@ static void draw_main_screen(struct file_sel *fs)
   
   hed_scr_flush();
   scr->redraw_needed = false;
+}
+
+static void move_sel_up(struct file_sel *fs)
+{
+  struct hed_screen *scr = &fs->editor->screen;
+
+  if (fs->sel->prev) {
+    fs->sel = fs->sel->prev;
+    if (fs->sel->index < fs->top_line)
+      fs->top_line = fs->sel->index;
+    scr->redraw_needed = true;
+  }
+}
+
+static void move_sel_down(struct file_sel *fs)
+{
+  struct hed_screen *scr = &fs->editor->screen;
+  size_t n_page_lines = scr->h - 2 - BORDER_LINES;
+
+  if (fs->sel->next) {
+    fs->sel = fs->sel->next;
+    if (fs->top_line + n_page_lines - 1 < fs->sel->index)
+      fs->top_line = fs->sel->index - n_page_lines + 1;
+    scr->redraw_needed = true;
+  }
+}
+
+static void move_sel_page_up(struct file_sel *fs)
+{
+  struct hed_screen *scr = &fs->editor->screen;
+  size_t n_page_lines = scr->h - 2 - BORDER_LINES;
+
+  for (int i = 0; i < scr->h - 2 - BORDER_LINES; i++) {
+    if (fs->sel->prev)
+      fs->sel = fs->sel->prev;
+    else
+      break;
+  }
+  if (fs->sel->index < fs->top_line) {
+    if (fs->sel->index > n_page_lines/2)
+      fs->top_line = fs->sel->index - n_page_lines/2;
+    else
+      fs->top_line = 0;
+  }
+  scr->redraw_needed = true;
+}
+
+static void move_sel_page_down(struct file_sel *fs)
+{
+  struct hed_screen *scr = &fs->editor->screen;
+  size_t n_page_lines = scr->h - 2 - BORDER_LINES;
+
+  for (int i = 0; i < scr->h - 2 - BORDER_LINES; i++) {
+    if (fs->sel->next)
+      fs->sel = fs->sel->next;
+    else
+      break;
+  }
+  if (fs->top_line + n_page_lines - 1 < fs->sel->index) {
+    if (fs->sel->index > n_page_lines/2)
+      fs->top_line = fs->sel->index - n_page_lines/2;
+    else
+      fs->top_line = 0;
+  }
+  scr->redraw_needed = true;
 }
 
 static void process_input(struct file_sel *fs)
@@ -320,20 +427,11 @@ static void process_input(struct file_sel *fs)
     }
         
     break;
-    
-  case KEY_ARROW_UP:
-    if (fs->sel->prev) {
-      fs->sel = fs->sel->prev;
-      scr->redraw_needed = true;
-    }
-    break;
 
-  case KEY_ARROW_DOWN:
-    if (fs->sel->next) {
-      fs->sel = fs->sel->next;
-      scr->redraw_needed = true;
-    }
-    break;
+  case KEY_ARROW_UP:   move_sel_up(fs); break;
+  case KEY_ARROW_DOWN: move_sel_down(fs); break;
+  case KEY_PAGE_UP:    move_sel_page_up(fs); break;
+  case KEY_PAGE_DOWN:  move_sel_page_down(fs); break;
   }
 }
 

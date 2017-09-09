@@ -12,7 +12,7 @@ TEST_FILE = src/editor.o
 all: debug
 
 debug:
-	$(MAKE) build TARGET_CFLAGS="-O1 -g" TARGET_LDFLAGS=""
+	$(MAKE) build TARGET_CFLAGS="-O1 -g -Wstrict-prototypes -Werror" TARGET_LDFLAGS=""
 
 release:
 	$(MAKE) build TARGET_CFLAGS="-O2" TARGET_LDFLAGS="-s"

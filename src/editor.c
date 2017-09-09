@@ -538,6 +538,7 @@ static int prompt_get_text(struct hed_editor *editor, const char *prompt, char *
         if (hed_select_file(editor, filename, sizeof(filename)) >= 0) {
           strncpy(str, filename, max_str_len-1);
           str[max_str_len-1] = '\0';
+          editor->edit_mode = HED_MODE_DEFAULT;
           return 0;
         }
         show_cursor(true);
