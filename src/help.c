@@ -31,8 +31,11 @@ static const char *help_page[] = {
   "   ^N    (Down)          Move cursor down",
   "   ^Y    (PageUp)        Move one page up",
   "   ^V    (PageDown)      Move one page down",
-  "   M-G                   Go to offset",
   "",
+  "   ^C                    Show current position",
+  "   M-G                   Go to position",
+
+  "   M-W                   Repeat last search",
   "   TAB                   Switch between hex and text panes",
   "",
   "Only on hex pane:",

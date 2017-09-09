@@ -105,12 +105,19 @@ void hed_draw_key_help(int x, int y, const char *key, const char *help)
     out(" ");
 }
 
+void hed_void_key_help(int x, int y)
+{
+  move_cursor(x, y);
+  reset_color();
+  clear_eol();
+}
+
 static void draw_footer(struct hed_editor *editor)
 {
   struct hed_screen *scr = &editor->screen;
 
   reset_color();
-  move_cursor(1, scr->h - 1);
+  move_cursor(1, scr->h - FOOTER_LINES + 1);
   if (scr->cur_msg[0] != '\0') {
     set_color(FG_BLACK, BG_GRAY);
     out(" %s", scr->cur_msg);
@@ -119,29 +126,47 @@ static void draw_footer(struct hed_editor *editor)
 
   switch (editor->mode) {
   case HED_MODE_READ_FILENAME:
-    hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^C", "Cancel");
-    hed_draw_key_help(1 + 1*KEY_HELP_SPACING, scr->h, "^T", "To Files");
+    hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h-1, "^T", "To Files");
+    hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h-0, "^C", "Cancel");
+
+    hed_void_key_help(1 + 1*KEY_HELP_SPACING, scr->h-1);
+    hed_void_key_help(1 + 1*KEY_HELP_SPACING, scr->h-0);
     break;
 
   case HED_MODE_READ_STRING:
-    hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^C", "Cancel");
+    hed_void_key_help(1 + 0*KEY_HELP_SPACING, scr->h-1);
+    hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h-0, "^C", "Cancel");
+
+    hed_void_key_help(1 + 1*KEY_HELP_SPACING, scr->h-1);
+    hed_void_key_help(1 + 1*KEY_HELP_SPACING, scr->h-0);
     break;
 
   case HED_MODE_READ_YESNO:
-    hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^C", "Cancel");
-    hed_draw_key_help(1 + 1*KEY_HELP_SPACING, scr->h, " Y", "Yes");
-    hed_draw_key_help(1 + 2*KEY_HELP_SPACING, scr->h, " N", "No");
+    hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h-1, " Y", "Yes");
+    hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h-0, " N", "No");
+    
+    hed_void_key_help(1 + 1*KEY_HELP_SPACING, scr->h-1);
+    hed_draw_key_help(1 + 1*KEY_HELP_SPACING, scr->h-0, "^C", "Cancel");
+
+    hed_void_key_help(1 + 2*KEY_HELP_SPACING, scr->h-1);
+    hed_void_key_help(1 + 2*KEY_HELP_SPACING, scr->h-0);
     break;
 
   case HED_MODE_DEFAULT:
-    if (editor->file->next == editor->file)
-      hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^X", "Exit");
-    else
-      hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^X", "Close");
-    hed_draw_key_help(  1 + 1*KEY_HELP_SPACING, scr->h, "^G", "Get Help");
-    hed_draw_key_help(  1 + 2*KEY_HELP_SPACING, scr->h, "^O", "Write File");
-    hed_draw_key_help(  1 + 3*KEY_HELP_SPACING, scr->h, "^R", "Read File");
-    hed_draw_key_help(  1 + 4*KEY_HELP_SPACING, scr->h, "^W", "Where Is");
+    hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h-1, "^G",  "Get Help");
+    hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h-0, "^X",  (editor->file->next == editor->file) ? "Exit" : "Close");
+    
+    hed_draw_key_help(1 + 1*KEY_HELP_SPACING, scr->h-1, "^O",  "Write File");
+    hed_draw_key_help(1 + 1*KEY_HELP_SPACING, scr->h-0, "^R",  "Read File");
+
+    hed_draw_key_help(1 + 2*KEY_HELP_SPACING, scr->h-1, "^W",  "Where Is");
+    hed_draw_key_help(1 + 2*KEY_HELP_SPACING, scr->h-0, "^C",  "Cur Pos");
+    
+    hed_draw_key_help(1 + 3*KEY_HELP_SPACING, scr->h-1, "M-W", "Last Search");
+    hed_draw_key_help(1 + 3*KEY_HELP_SPACING, scr->h-0, "M-G", "Go To");
+
+    hed_draw_key_help(1 + 4*KEY_HELP_SPACING, scr->h-1, "TAB", "Switch Pane");
+    hed_draw_key_help(1 + 4*KEY_HELP_SPACING, scr->h-0, " ^L", "Redraw");
   }
   clear_eol();
 }
@@ -410,7 +435,7 @@ static int prompt_get_yesno(struct hed_editor *editor, const char *prompt, bool 
   while (! editor->quit) {
     if (scr->redraw_needed)
       draw_main_screen(editor);
-    move_cursor(3 + prompt_len, scr->h - 1);
+    move_cursor(3 + prompt_len, scr->h - FOOTER_LINES + 1);
     show_cursor(true);
     hed_scr_flush();
     
@@ -457,10 +482,10 @@ static int prompt_get_text(struct hed_editor *editor, const char *prompt, char *
       draw_main_screen(editor);
     reset_color();
     set_color(FG_BLACK, BG_GRAY);
-    move_cursor(1, scr->h - 1);
+    move_cursor(1, scr->h - FOOTER_LINES + 1);
     out(" %s: %s", prompt, str);
     clear_eol();
-    move_cursor(4 + prompt_len + cursor_pos, scr->h - 1);
+    move_cursor(4 + prompt_len + cursor_pos, scr->h - FOOTER_LINES + 1);
     set_color(FG_BLACK, BG_GRAY);
     show_cursor(true);
     hed_scr_flush();
@@ -662,6 +687,31 @@ static int perform_search(struct hed_editor *editor)
   return 0;
 }
 
+static int prompt_search(struct hed_editor *editor)
+{
+  struct hed_file *file = editor->file;
+  const char *prompt = (file->pane == HED_PANE_HEX) ? "Search bytes" : "Search text";
+  char prompt_str[40];
+  if (editor->search_str[0] != '\0') {
+    size_t prompt_len = strlen(prompt);
+    size_t len = strlen(editor->search_str);
+    if (len + prompt_len + 10 > sizeof(prompt_str)) {
+      len = sizeof(prompt_str) - prompt_len - 10;
+      snprintf(prompt_str, sizeof(prompt_str), "%s [%.*s...]", prompt, (int) len, editor->search_str);
+    } else
+      snprintf(prompt_str, sizeof(prompt_str), "%s [%.*s]", prompt, (int) len, editor->search_str);
+    prompt = prompt_str;
+  }
+  char search_str[sizeof(editor->search_str)];
+  search_str[0] = '\0';
+  if (prompt_get_filename(editor, prompt, search_str, sizeof(search_str)) < 0)
+    return -1;
+  if (search_str[0] != '\0')
+    strcpy(editor->search_str, search_str);
+  perform_search(editor);
+  return 0;
+}
+
 static void process_input(struct hed_editor *editor)
 {
   struct hed_screen *scr = &editor->screen;
@@ -679,7 +729,8 @@ static void process_input(struct hed_editor *editor)
     break;
 
   case KEY_BAD_SEQUENCE:
-    show_msg("Unknown key: <ESC>%s", key_err);
+    //show_msg("Unknown key: <ESC>%s", key_err);
+    //show_msg("Bad key");
     break;
 
   case CTRL_KEY('g'):
@@ -726,6 +777,13 @@ static void process_input(struct hed_editor *editor)
     reset_color();
     clear_screen();
     break;
+
+  case CTRL_KEY('c'):
+    if (editor->file)
+      show_msg("Current position: %08zx (dec %zu) %zu%%",
+               editor->file->cursor_pos, editor->file->cursor_pos,
+               (editor->file->data_len>0) ? editor->file->cursor_pos*100/(editor->file->data_len-1) : 0);
+    break;
     
   case '\t':
     if (file->pane == HED_PANE_HEX)
@@ -752,28 +810,14 @@ static void process_input(struct hed_editor *editor)
     file = editor->file;
     break;
 
-  case CTRL_KEY('w'):
-    if (file->data) {
-      const char *prompt = (file->pane == HED_PANE_HEX) ? "Search bytes" : "Search text";
-      char prompt_str[40];
-      if (editor->search_str[0] != '\0') {
-        size_t prompt_len = strlen(prompt);
-        size_t len = strlen(editor->search_str);
-        if (len + prompt_len + 10 > sizeof(prompt_str)) {
-          len = sizeof(prompt_str) - prompt_len - 10;
-          snprintf(prompt_str, sizeof(prompt_str), "%s [%.*s...]", prompt, (int) len, editor->search_str);
-        } else
-          snprintf(prompt_str, sizeof(prompt_str), "%s [%.*s]", prompt, (int) len, editor->search_str);
-        prompt = prompt_str;
-      }
-      char search_str[sizeof(editor->search_str)];
-      search_str[0] = '\0';
-      if (prompt_get_filename(editor, prompt, search_str, sizeof(search_str)) < 0)
-        break;
-      if (search_str[0] != '\0')
-        strcpy(editor->search_str, search_str);
+  case ALT_KEY('w'):
+    if (file && file->data && editor->search_str[0] != '\0')
       perform_search(editor);
-    }
+    break;
+    
+  case CTRL_KEY('w'):
+    if (file && file->data)
+      prompt_search(editor);
     break;
 
   case ALT_KEY('g'):
