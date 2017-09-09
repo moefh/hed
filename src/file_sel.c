@@ -428,6 +428,10 @@ static void process_input(struct file_sel *fs)
         
     break;
 
+  case CTRL_KEY('p'):  move_sel_up(fs); break;
+  case CTRL_KEY('n'):  move_sel_down(fs); break;
+  case CTRL_KEY('y'):  move_sel_page_up(fs); break;
+  case CTRL_KEY('v'):  move_sel_page_down(fs); break;
   case KEY_ARROW_UP:   move_sel_up(fs); break;
   case KEY_ARROW_DOWN: move_sel_down(fs); break;
   case KEY_PAGE_UP:    move_sel_page_up(fs); break;

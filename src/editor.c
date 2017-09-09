@@ -449,16 +449,18 @@ static int prompt_get_text(struct hed_editor *editor, const char *prompt, char *
   size_t cursor_pos = str_len;
   char key_err[64];
 
+  clear_msg();
   scr->redraw_needed = true;
   while (! editor->quit) {
     show_cursor(false);
-    show_msg("%s: ", prompt);
     if (scr->redraw_needed)
       draw_main_screen(editor);
     reset_color();
     set_color(FG_BLACK, BG_GRAY);
-    move_cursor(4 + prompt_len, scr->h - 1);
-    out("%s", str);
+    move_cursor(1, scr->h - 1);
+    out(" %s: %s", prompt, str);
+    //move_cursor(4 + prompt_len, scr->h - 1);
+    //out("%s", str);
     clear_eol();
     move_cursor(4 + prompt_len + cursor_pos, scr->h - 1);
     set_color(FG_BLACK, BG_GRAY);
@@ -482,10 +484,27 @@ static int prompt_get_text(struct hed_editor *editor, const char *prompt, char *
       clear_msg();
       return (k == '\r') ? 0 : -1;
 
-    case KEY_HOME:        cursor_pos = 0; break;
-    case KEY_END:         cursor_pos = str_len; break;
-    case KEY_ARROW_LEFT:  if (cursor_pos > 0) cursor_pos--; break;
-    case KEY_ARROW_RIGHT: if (cursor_pos < str_len) cursor_pos++; break;
+    case CTRL_KEY('a'):
+    case KEY_HOME:
+      cursor_pos = 0;
+      break;
+      
+    case CTRL_KEY('e'):
+    case KEY_END:
+      cursor_pos = str_len;
+      break;
+      
+    case CTRL_KEY('b'):
+    case KEY_ARROW_LEFT:
+      if (cursor_pos > 0)
+        cursor_pos--;
+      break;
+      
+    case CTRL_KEY('f'):
+    case KEY_ARROW_RIGHT:
+      if (cursor_pos < str_len)
+        cursor_pos++;
+      break;
 
     case CTRL_KEY('t'):
       if (editor->mode == HED_MODE_READ_FILENAME) {
@@ -766,15 +785,21 @@ static void process_input(struct hed_editor *editor)
       hed_set_cursor_pos(editor, (size_t) offset, 16);
     }
     break;
-    
+
+  case ALT_KEY('\\'):    cursor_start_of_file(editor); break;
+  case ALT_KEY('/'):     cursor_end_of_file(editor); break;
   case CTRL_KEY('a'):    cursor_home(editor); break;
   case CTRL_KEY('e'):    cursor_end(editor); break;
-  case 8:                cursor_left(editor); break;
-  case 127:              cursor_left(editor); break;
-  case KEY_HOME:         cursor_home(editor); break;
-  case KEY_END:          cursor_end(editor);  break;
+  case CTRL_KEY('b'):    cursor_left(editor); break;
+  case CTRL_KEY('f'):    cursor_right(editor); break;
+  case CTRL_KEY('p'):    cursor_up(editor); break;
+  case CTRL_KEY('n'):    cursor_down(editor); break;
+  case CTRL_KEY('y'):    cursor_page_up(editor); break;
+  case CTRL_KEY('v'):    cursor_page_down(editor); break;
   case KEY_CTRL_HOME:    cursor_start_of_file(editor); break;
   case KEY_CTRL_END:     cursor_end_of_file(editor); break;
+  case KEY_HOME:         cursor_home(editor); break;
+  case KEY_END:          cursor_end(editor);  break;
   case KEY_PAGE_UP:      cursor_page_up(editor); break;
   case KEY_PAGE_DOWN:    cursor_page_down(editor); break;
   case KEY_ARROW_UP:     cursor_up(editor); break;
