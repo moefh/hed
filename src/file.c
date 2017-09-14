@@ -130,7 +130,10 @@ int hed_write_file(struct hed_file *file, const char *filename)
   show_msg("File saved: '%s'", filename);
   file->modified = false;
 
-  if (new_filename)
+  if (new_filename) {
+    if (file->filename)
+      free(file->filename);
     file->filename = new_filename;
+  }
   return 0;
 }

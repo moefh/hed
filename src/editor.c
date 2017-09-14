@@ -14,6 +14,7 @@
 #include "file.h"
 #include "file_sel.h"
 #include "help.h"
+#include "utf8.h"
 
 void hed_init_editor(struct hed_editor *editor)
 {
@@ -485,7 +486,8 @@ static int prompt_get_text(struct hed_editor *editor, const char *prompt, char *
     move_cursor(1, scr->h - FOOTER_LINES + 1);
     out(" %s: %s", prompt, str);
     clear_eol();
-    move_cursor(4 + prompt_len + cursor_pos, scr->h - FOOTER_LINES + 1);
+    size_t scr_cursor_pos = utf8_len_upto(str, str + cursor_pos);
+    move_cursor(4 + prompt_len + scr_cursor_pos, scr->h - FOOTER_LINES + 1);
     set_color(FG_BLACK, BG_GRAY);
     show_cursor(true);
     hed_scr_flush();
@@ -519,14 +521,18 @@ static int prompt_get_text(struct hed_editor *editor, const char *prompt, char *
       
     case CTRL_KEY('b'):
     case KEY_ARROW_LEFT:
-      if (cursor_pos > 0)
-        cursor_pos--;
+      if (cursor_pos > 0) {
+        const char *pos = utf8_prev(str, str + cursor_pos);
+        cursor_pos = pos - str;
+      }
       break;
       
     case CTRL_KEY('f'):
     case KEY_ARROW_RIGHT:
-      if (cursor_pos < str_len)
-        cursor_pos++;
+      if (cursor_pos < str_len) {
+        const char *pos = utf8_next(str + cursor_pos);
+        cursor_pos = pos - str;
+      }
       break;
 
     case CTRL_KEY('t'):
@@ -547,9 +553,12 @@ static int prompt_get_text(struct hed_editor *editor, const char *prompt, char *
     case 8:
     case 127:
       if (cursor_pos > 0) {
-        memmove(str + cursor_pos - 1, str + cursor_pos, str_len - cursor_pos + 1);
-        cursor_pos--;
-        str_len--;
+        //memmove(str + cursor_pos - 1, str + cursor_pos, str_len - cursor_pos + 1);
+        const char *prev = utf8_prev(str, str + cursor_pos);
+        size_t n_erase = str + cursor_pos - prev;
+        memmove(str + cursor_pos - n_erase, str + cursor_pos, str_len - cursor_pos + n_erase);
+        cursor_pos -= n_erase;
+        str_len -= n_erase;
       }
       break;
 

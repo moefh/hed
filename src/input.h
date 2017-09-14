@@ -6,14 +6,16 @@
 #define CTRL_KEY(k) ((k) & 0x1f)
 #define ALT_KEY(k)  (((k) & 0x1f) + KEY_ALT_FIRST)
 
+#define FIRST_NONCHAR_KEY  0x110000
+
 enum hex_editor_key {
   KEY_READ_ERROR = -1,
 
-  KEY_NONE = 1000,
+  KEY_NONE = FIRST_NONCHAR_KEY,
   KEY_BAD_SEQUENCE,
   KEY_REDRAW,
   
-  KEY_ARROW_LEFT = 2000,
+  KEY_ARROW_LEFT = FIRST_NONCHAR_KEY + 0x1000,
   KEY_ARROW_RIGHT,
   KEY_ARROW_UP,
   KEY_ARROW_DOWN,
@@ -72,7 +74,7 @@ enum hex_editor_key {
   KEY_SHIFT_F11,
   KEY_SHIFT_F12,
 
-  KEY_ALT_FIRST = 3000,
+  KEY_ALT_FIRST = FIRST_NONCHAR_KEY + 0x2000,
 };
 
 int read_key(int fd, char *seq, size_t max_seq_len);

@@ -18,6 +18,7 @@
 #include "editor.h"
 #include "screen.h"
 #include "input.h"
+#include "utf8.h"
 
 struct file_item {
   struct file_item *next;
@@ -211,7 +212,7 @@ static int change_dir(struct file_sel *fs, const char *dir_name)
   size_t num_files = 0;
   size_t max_filename_len = 0;
   for (struct file_item *f = dir_list; f != NULL; f = f->next) {
-    size_t filename_len = strlen(f->filename);
+    size_t filename_len = utf8_len(f->filename);
     if (filename_len > max_filename_len)
       max_filename_len = filename_len;
     num_files++;
@@ -293,7 +294,8 @@ static void draw_main_screen(struct file_sel *fs)
     move_cursor(1, line + 1 + HEADER_LINES);
 
     // filename
-    size_t filename_len = strlen(file->filename);
+    size_t filename_len = utf8_len(file->filename);
+    //fprintf(stderr, "utf8_len('%s') = %zu\n", file->filename, filename_len);
     if (filename_len > (size_t) col_len)
       out("%.*s", col_len, file->filename);
     else
