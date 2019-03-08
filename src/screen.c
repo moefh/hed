@@ -51,11 +51,18 @@ int hed_scr_show_msg(const char *fmt, ...)
 {
   va_list ap;
   va_start(ap, fmt);
-  vsnprintf(screen->cur_msg, sizeof(screen->cur_msg), fmt, ap);
+  if (screen)
+    vsnprintf(screen->cur_msg, sizeof(screen->cur_msg), fmt, ap);
+  else {
+    vfprintf(stderr, fmt, ap);
+    fprintf(stderr, "\n");
+  }
   va_end(ap);
   
-  screen->redraw_needed = true;
-  screen->msg_was_set = true;
+  if (screen) {
+    screen->redraw_needed = true;
+    screen->msg_was_set = true;
+  }
   return -1;
 }
 

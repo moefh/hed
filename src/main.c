@@ -104,6 +104,8 @@ int main(int argc, char **argv)
       file = hed_new_file_from_data(data, data_len);
     } else
       file = hed_read_file(argv[1]);
+    if (! file)
+      exit(1);
     hed_add_file(&editor, file);
   }
   
