@@ -1,7 +1,5 @@
 /* file_sel.c */
 
-#define _XOPEN_SOURCE
-
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -120,7 +118,7 @@ static struct file_item *read_dir_list(const char *dir_name)
     if (! file)
       break;
 
-    strncpy(file->filename, ent->d_name, file_name_len);
+    memcpy(file->filename, ent->d_name, file_name_len);
     file->filename[file_name_len] = '\0';
     
     file->is_file = (st.st_mode & S_IFMT) == S_IFREG;

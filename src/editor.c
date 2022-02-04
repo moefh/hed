@@ -540,8 +540,12 @@ static int prompt_get_text(struct hed_editor *editor, const char *prompt, char *
         show_cursor(false);
         char filename[256];
         if (hed_select_file(editor, filename, sizeof(filename)) >= 0) {
-          strncpy(str, filename, max_str_len-1);
-          str[max_str_len-1] = '\0';
+          size_t filename_len = strlen(filename) + 1;
+          if (filename_len > max_str_len) {
+            filename_len = max_str_len;
+          }
+          memcpy(str, filename, filename_len-1);
+          str[filename_len-1] = '\0';
           editor->mode = HED_MODE_DEFAULT;
           return 0;
         }
