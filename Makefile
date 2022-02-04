@@ -1,6 +1,6 @@
 
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c99 -pedantic -Wno-unused-result
+CFLAGS = -Wall -Wextra
 LDFLAGS =
 
 TARGETS = debug release
