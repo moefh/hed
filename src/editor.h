@@ -6,10 +6,11 @@
 #include "hed.h"
 #include "screen.h"
 
-#define HEADER_LINES     2
-#define FOOTER_LINES     3
-#define BORDER_LINES     (HEADER_LINES+FOOTER_LINES)
-#define KEY_HELP_SPACING 16
+#define EDITOR_HEADER_LINES     2
+#define EDITOR_DATA_LINES       5
+#define EDITOR_FOOTER_LINES     3
+#define EDITOR_BORDER_LINES     (EDITOR_HEADER_LINES+EDITOR_FOOTER_LINES)
+#define EDITOR_KEY_HELP_SPACING 16
 
 enum hed_editor_mode {
   HED_MODE_DEFAULT,

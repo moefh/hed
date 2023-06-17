@@ -94,11 +94,11 @@ static void draw_footer(struct help_state *hs)
   }
   clear_eol();
 
-  hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^C", "Back");
-  hed_draw_key_help(1 + 1*KEY_HELP_SPACING, scr->h, "^P", "Up");
-  hed_draw_key_help(1 + 2*KEY_HELP_SPACING, scr->h, "^N", "Down");
-  hed_draw_key_help(1 + 3*KEY_HELP_SPACING, scr->h, "^Y", "Page Up");
-  hed_draw_key_help(1 + 4*KEY_HELP_SPACING, scr->h, "^V", "Page Down");
+  hed_draw_key_help(1 + 0*EDITOR_KEY_HELP_SPACING, scr->h, "^C", "Back");
+  hed_draw_key_help(1 + 1*EDITOR_KEY_HELP_SPACING, scr->h, "^P", "Up");
+  hed_draw_key_help(1 + 2*EDITOR_KEY_HELP_SPACING, scr->h, "^N", "Down");
+  hed_draw_key_help(1 + 3*EDITOR_KEY_HELP_SPACING, scr->h, "^Y", "Page Up");
+  hed_draw_key_help(1 + 4*EDITOR_KEY_HELP_SPACING, scr->h, "^V", "Page Down");
   clear_eol();
 }
 
@@ -116,18 +116,18 @@ static void draw_main_screen(struct help_state *hs)
   draw_footer(hs);
 
   int line = 0;
-  while (line + BORDER_LINES < scr->h) {
+  while (line + EDITOR_BORDER_LINES < scr->h) {
     if (hs->top_line + line >= hs->num_lines)
       break;
-    move_cursor(1, line + 1 + HEADER_LINES);
+    move_cursor(1, line + 1 + EDITOR_HEADER_LINES);
     out("%s", hs->lines[hs->top_line + line]);
     clear_eol();
     line++;
   }
 
-  while (line + BORDER_LINES < scr->h) {
+  while (line + EDITOR_BORDER_LINES < scr->h) {
     reset_color();
-    move_cursor(1, line + 1 + HEADER_LINES);
+    move_cursor(1, line + 1 + EDITOR_HEADER_LINES);
     clear_eol();
     line++;
   }
@@ -149,7 +149,7 @@ static void move_text_up(struct help_state *hs)
 static void move_text_down(struct help_state *hs)
 {
   struct hed_screen *scr = &hs->editor->screen;
-  size_t n_page_lines = scr->h - BORDER_LINES;
+  size_t n_page_lines = scr->h - EDITOR_BORDER_LINES;
 
   if (hs->top_line + n_page_lines < hs->num_lines) {
     hs->top_line++;
@@ -160,7 +160,7 @@ static void move_text_down(struct help_state *hs)
 static void move_text_page_up(struct help_state *hs)
 {
   struct hed_screen *scr = &hs->editor->screen;
-  size_t n_page_lines = scr->h - BORDER_LINES;
+  size_t n_page_lines = scr->h - EDITOR_BORDER_LINES;
 
   if (hs->top_line > n_page_lines)
     hs->top_line -= n_page_lines;
@@ -172,7 +172,7 @@ static void move_text_page_up(struct help_state *hs)
 static void move_text_page_down(struct help_state *hs)
 {
   struct hed_screen *scr = &hs->editor->screen;
-  size_t n_page_lines = scr->h - BORDER_LINES;
+  size_t n_page_lines = scr->h - EDITOR_BORDER_LINES;
 
   if (hs->top_line + 2*n_page_lines < hs->num_lines)
     hs->top_line += n_page_lines;

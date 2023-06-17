@@ -258,8 +258,8 @@ static void draw_footer(struct file_sel *fs)
   }
   clear_eol();
 
-  hed_draw_key_help(1 + 0*KEY_HELP_SPACING, scr->h, "^C", "Cancel");
-  //hed_draw_key_help(1 + 1*KEY_HELP_SPACING, scr->h, "^T", "To Files");
+  hed_draw_key_help(1 + 0*EDITOR_KEY_HELP_SPACING, scr->h, "^C", "Cancel");
+  //hed_draw_key_help(1 + 1*EDITOR_KEY_HELP_SPACING, scr->h, "^T", "To Files");
   clear_eol();
 }
 
@@ -284,12 +284,12 @@ static void draw_main_screen(struct file_sel *fs)
   int col_len = (fs->max_filename_len+1 > INT_MAX) ? INT_MAX : (int)(fs->max_filename_len+1);
   if (col_len > scr->w - 20)
     col_len = scr->w - 20;
-  while (file != NULL && line + 1 + BORDER_LINES < scr->h) {
+  while (file != NULL && line + 1 + EDITOR_BORDER_LINES < scr->h) {
     if (file == fs->sel)
       set_color(FG_BLACK, BG_GRAY);
     else
       reset_color();
-    move_cursor(1, line + 1 + HEADER_LINES);
+    move_cursor(1, line + 1 + EDITOR_HEADER_LINES);
 
     // filename
     size_t filename_len = utf8_len(file->filename);
@@ -316,9 +316,9 @@ static void draw_main_screen(struct file_sel *fs)
     line++;
   }
 
-  while (line + 1 + BORDER_LINES < scr->h) {
+  while (line + 1 + EDITOR_BORDER_LINES < scr->h) {
     reset_color();
-    move_cursor(1, line + 1 + HEADER_LINES);
+    move_cursor(1, line + 1 + EDITOR_HEADER_LINES);
     clear_eol();
     line++;
   }
@@ -342,7 +342,7 @@ static void move_sel_up(struct file_sel *fs)
 static void move_sel_down(struct file_sel *fs)
 {
   struct hed_screen *scr = &fs->editor->screen;
-  size_t n_page_lines = scr->h - 1 - BORDER_LINES;
+  size_t n_page_lines = scr->h - 1 - EDITOR_BORDER_LINES;
 
   if (fs->sel->next) {
     fs->sel = fs->sel->next;
@@ -355,7 +355,7 @@ static void move_sel_down(struct file_sel *fs)
 static void move_sel_page_up(struct file_sel *fs)
 {
   struct hed_screen *scr = &fs->editor->screen;
-  size_t n_page_lines = scr->h - 1 - BORDER_LINES;
+  size_t n_page_lines = scr->h - 1 - EDITOR_BORDER_LINES;
 
   for (size_t i = 0; i < n_page_lines; i++) {
     if (fs->sel->prev)
@@ -375,7 +375,7 @@ static void move_sel_page_up(struct file_sel *fs)
 static void move_sel_page_down(struct file_sel *fs)
 {
   struct hed_screen *scr = &fs->editor->screen;
-  size_t n_page_lines = scr->h - 1 - BORDER_LINES;
+  size_t n_page_lines = scr->h - 1 - EDITOR_BORDER_LINES;
 
   for (size_t i = 0; i < n_page_lines; i++) {
     if (fs->sel->next)

@@ -7,6 +7,18 @@
 #include "file.h"
 #include "screen.h"
 
+static int is_cpu_float_little_endian(void)
+{
+  static int cpu_float_is_little_endian = -1;
+  if (cpu_float_is_little_endian < 0) {
+    float one = 1.0f;
+    uint8_t data[sizeof(float)];
+    memcpy(data, &one, sizeof(float));
+    cpu_float_is_little_endian = (data[0] == 0) ? 1 : 0;
+  }
+  return cpu_float_is_little_endian;
+}
+
 static struct hed_file *new_file(void)
 {
   struct hed_file *file = malloc(sizeof(struct hed_file));
@@ -16,6 +28,7 @@ static struct hed_file *new_file(void)
   file->data = NULL;
   file->data_len = 0;
   file->modified = false;
+  file->show_data = false;
   file->pane = HED_PANE_HEX;
   file->top_line = 0;
   file->cursor_pos = 0;
@@ -136,4 +149,97 @@ int hed_write_file(struct hed_file *file, const char *filename)
     file->filename = new_filename;
   }
   return 0;
+}
+
+bool get_file_u8(struct hed_file *file, size_t pos, uint8_t *data)
+{
+  if (! file->data || pos + 1 > file->data_len) return false;
+  *data = file->data[pos];
+  return true;
+}
+
+bool get_file_u16(struct hed_file *file, size_t pos, uint16_t *data)
+{
+  if (! file->data || pos + 2 > file->data_len) return false;
+
+  if (file->endianess == HED_DATA_LITTLE_ENDIAN) {
+    *data = (((uint16_t) file->data[pos+1] << 8) |
+             ((uint16_t) file->data[pos+0] << 0));
+  } else {
+    *data = (((uint16_t) file->data[pos+0] << 8) |
+             ((uint16_t) file->data[pos+1] << 0));
+  }
+  return true;
+}
+
+bool get_file_u32(struct hed_file *file, size_t pos, uint32_t *data)
+{
+  if (! file->data || pos + 4 > file->data_len) return false;
+
+  if (file->endianess == HED_DATA_LITTLE_ENDIAN) {
+    *data = (((uint32_t) file->data[pos+3] << 24) |
+             ((uint32_t) file->data[pos+2] << 16) |
+             ((uint32_t) file->data[pos+1] <<  8) |
+             ((uint32_t) file->data[pos+0] <<  0));
+  } else {
+    *data = (((uint32_t) file->data[pos+0] << 24) |
+             ((uint32_t) file->data[pos+1] << 16) |
+             ((uint32_t) file->data[pos+2] <<  8) |
+             ((uint32_t) file->data[pos+3] <<  0));
+  }
+  return true;
+}
+
+bool get_file_u64(struct hed_file *file, size_t pos, uint64_t *data)
+{
+  if (! file->data || pos + 8 > file->data_len) return false;
+
+  if (file->endianess == HED_DATA_LITTLE_ENDIAN) {
+    *data = (((uint64_t) file->data[pos+7] << 56) |
+             ((uint64_t) file->data[pos+6] << 48) |
+             ((uint64_t) file->data[pos+5] << 40) |
+             ((uint64_t) file->data[pos+4] << 32) |
+             ((uint64_t) file->data[pos+3] << 24) |
+             ((uint64_t) file->data[pos+2] << 16) |
+             ((uint64_t) file->data[pos+1] <<  8) |
+             ((uint64_t) file->data[pos+0] <<  0));
+  } else {
+    *data = (((uint64_t) file->data[pos+0] << 56) |
+             ((uint64_t) file->data[pos+1] << 48) |
+             ((uint64_t) file->data[pos+2] << 40) |
+             ((uint64_t) file->data[pos+3] << 32) |
+             ((uint64_t) file->data[pos+4] << 24) |
+             ((uint64_t) file->data[pos+5] << 16) |
+             ((uint64_t) file->data[pos+6] <<  8) |
+             ((uint64_t) file->data[pos+7] <<  0));
+  }
+  return true;
+}
+
+bool get_file_f32(struct hed_file *file, size_t pos, float *data)
+{
+  if (! file->data || pos + 4 > file->data_len) return false;
+  if (is_cpu_float_little_endian() == (file->endianess == HED_DATA_LITTLE_ENDIAN)) {
+    memcpy(data, &file->data[pos], 4);
+    return true;
+  }
+  uint8_t buf[4] = { file->data[pos+3], file->data[pos+2], file->data[pos+1], file->data[pos+0] };
+  memcpy(data, buf, 4);
+  return true;
+}
+
+bool get_file_f64(struct hed_file *file, size_t pos, double *data)
+{
+  if (! file->data || pos + 8 > file->data_len) return false;
+
+  if (is_cpu_float_little_endian() == (file->endianess == HED_DATA_LITTLE_ENDIAN)) {
+    memcpy(data, &file->data[pos], 8);
+    return true;
+  }
+  uint8_t buf[8] = {
+    file->data[pos+7], file->data[pos+6], file->data[pos+5], file->data[pos+4],
+    file->data[pos+3], file->data[pos+2], file->data[pos+1], file->data[pos+0],
+  };
+  memcpy(data, buf, 8);
+  return true;
 }
