@@ -34,7 +34,8 @@ static const char *help_page[] = {
   "",
   "   ^C                    Show current position",
   "   M-G                   Go to position",
-
+  "   M-Y                   Enable/disable byte colors",
+  "",
   "   M-W                   Repeat last search",
   "   TAB                   Switch between hex and text panes",
   "",
@@ -131,7 +132,7 @@ static void draw_main_screen(struct help_state *hs)
     clear_eol();
     line++;
   }
-  
+
   hed_scr_flush();
   scr->redraw_needed = false;
 }
@@ -219,7 +220,7 @@ void hed_display_help(struct hed_editor *editor)
   struct hed_screen *scr = &editor->screen;
   struct help_state help;
   init_help_state(&help, editor);
-  
+
   reset_color();
   clear_screen();
   scr->redraw_needed = true;

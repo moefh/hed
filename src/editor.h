@@ -25,6 +25,7 @@ struct hed_editor {
   bool quit;
   bool half_byte_edited;
   bool read_only;
+  bool enable_byte_colors;
   char search_str[256];
   enum hed_editor_mode mode;
   struct hed_screen screen;
