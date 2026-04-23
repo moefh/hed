@@ -7,7 +7,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define HED_VERSION "0.4"
+#define HED_VERSION "0.5"
 #define HED_BANNER  "hed v" HED_VERSION
 
 #if defined(__GNUC__)
