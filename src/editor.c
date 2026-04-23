@@ -281,6 +281,7 @@ static void draw_file_dump(struct hed_editor *editor)
       txt_buf[txt_buf_len++] = ' ';
     }
     txt_buf[txt_buf_len] = '\0';
+    reset_color();
     set_bold(false);
     box_draw("| ");
 
